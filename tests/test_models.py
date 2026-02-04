@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from ising_toolkit.models import Ising1D
-from ising_toolkit.utils import ConfigurationError
+from ising_toolkit.models import Ising1D, Ising2D
+from ising_toolkit.utils import ConfigurationError, CRITICAL_TEMP_2D
 
 
 class TestIsing1DInitialization:
@@ -467,4 +467,471 @@ class TestIsing1DRepr:
         assert "Ising1D" in repr_str
         assert "size=10" in repr_str
         assert "temperature=2.0" in repr_str
+        assert "periodic" in repr_str
+
+
+# =============================================================================
+# 2D Ising Model Tests
+# =============================================================================
+
+
+class TestIsing2DInitialization:
+    """Tests for Ising2D initialization."""
+
+    def test_2d_initialization(self):
+        """Test that 2D model initializes correctly."""
+        model = Ising2D(size=10, temperature=2.0)
+
+        assert model.size == 10
+        assert model.n_spins == 100  # 10 * 10
+        assert model.shape == (10, 10)
+        assert model.spins.shape == (10, 10)
+        assert model.dimension == 2
+        assert model.n_neighbors == 4
+
+    def test_2d_initialization_parameters(self):
+        """Test that parameters are set correctly."""
+        model = Ising2D(
+            size=16, temperature=2.269, coupling=1.5, boundary="fixed"
+        )
+
+        assert model.size == 16
+        assert model.temperature == pytest.approx(2.269)
+        assert model.coupling == 1.5
+        assert model.boundary == "fixed"
+
+    def test_2d_initialization_invalid(self):
+        """Test that invalid parameters raise errors."""
+        with pytest.raises(ConfigurationError):
+            Ising2D(size=1, temperature=2.0)  # Too small
+        with pytest.raises(ConfigurationError):
+            Ising2D(size=10, temperature=-1.0)  # Invalid temp
+
+
+class TestIsing2DStateInitialization:
+    """Tests for 2D spin state initialization."""
+
+    def test_2d_initialization_up(self):
+        """Test 'up' initialization."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("up")
+
+        assert np.all(model.spins == 1)
+
+    def test_2d_initialization_down(self):
+        """Test 'down' initialization."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("down")
+
+        assert np.all(model.spins == -1)
+
+    def test_2d_initialization_random(self):
+        """Test random initialization."""
+        model = Ising2D(size=20, temperature=2.0)
+        model.set_seed(42)
+        model.initialize("random")
+
+        # Should have both +1 and -1
+        assert np.any(model.spins == 1)
+        assert np.any(model.spins == -1)
+        # All values should be ±1
+        assert np.all(np.abs(model.spins) == 1)
+
+    def test_2d_initialization_checkerboard(self):
+        """Test checkerboard initialization."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("checkerboard")
+
+        # Check pattern: (i+j) even -> +1, odd -> -1
+        for i in range(model.size):
+            for j in range(model.size):
+                expected = 1 if (i + j) % 2 == 0 else -1
+                assert model.spins[i, j] == expected
+
+
+class TestIsing2DEnergy:
+    """Tests for 2D energy calculations."""
+
+    def test_2d_energy_ground_state_periodic(self):
+        """Test energy for ground state (all aligned) with periodic BC.
+
+        For periodic BC: E = -J * 2 * N (2 bonds per spin on average)
+        """
+        L = 10
+        N = L * L
+        model = Ising2D(size=L, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # Each spin has 4 neighbors, but each bond counted once
+        # Total bonds = 2 * N for periodic (N horizontal + N vertical)
+        expected_energy = -1.0 * 2 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_2d_energy_ground_state_fixed(self):
+        """Test energy for ground state with fixed BC."""
+        L = 10
+        model = Ising2D(size=L, temperature=2.0, boundary="fixed")
+        model.initialize("up")
+
+        # For fixed BC: (L-1)*L horizontal + L*(L-1) vertical = 2*L*(L-1)
+        n_bonds = 2 * L * (L - 1)
+        expected_energy = -1.0 * n_bonds
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_2d_energy_antiferromagnetic_periodic(self):
+        """Test energy for antiferromagnetic (checkerboard) state.
+
+        All bonds anti-aligned: E = +J * 2 * N
+        """
+        L = 10
+        N = L * L
+        model = Ising2D(size=L, temperature=2.0, boundary="periodic")
+        model.initialize("checkerboard")
+
+        # All neighbors are anti-aligned
+        expected_energy = 1.0 * 2 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_2d_energy_antiferromagnetic_fixed(self):
+        """Test energy for checkerboard with fixed BC."""
+        L = 10
+        model = Ising2D(size=L, temperature=2.0, boundary="fixed")
+        model.initialize("checkerboard")
+
+        n_bonds = 2 * L * (L - 1)
+        expected_energy = 1.0 * n_bonds
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_2d_energy_with_coupling(self):
+        """Test energy scales with coupling constant."""
+        L = 10
+        N = L * L
+        J = 2.0
+        model = Ising2D(size=L, temperature=2.0, coupling=J, boundary="periodic")
+        model.initialize("up")
+
+        expected_energy = -J * 2 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_2d_energy_per_spin(self):
+        """Test energy per spin for ground state."""
+        model = Ising2D(size=20, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # e = E/N = -2J for ground state (each spin contributes -J * 4 / 2)
+        assert model.get_energy_per_spin() == pytest.approx(-2.0)
+
+
+class TestIsing2DMagnetization:
+    """Tests for 2D magnetization calculations."""
+
+    def test_2d_magnetization_ground_state(self):
+        """Test magnetization for all-up state."""
+        L = 10
+        N = L * L
+        model = Ising2D(size=L, temperature=2.0)
+        model.initialize("up")
+
+        assert model.get_magnetization() == N
+        assert model.get_magnetization_per_spin() == pytest.approx(1.0)
+
+    def test_2d_magnetization_all_down(self):
+        """Test magnetization for all-down state."""
+        L = 10
+        N = L * L
+        model = Ising2D(size=L, temperature=2.0)
+        model.initialize("down")
+
+        assert model.get_magnetization() == -N
+        assert model.get_magnetization_per_spin() == pytest.approx(-1.0)
+
+    def test_2d_magnetization_checkerboard(self):
+        """Test magnetization for checkerboard (should be ~0)."""
+        # Even size: exactly zero
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("checkerboard")
+
+        assert model.get_magnetization() == 0
+        assert model.get_magnetization_per_spin() == pytest.approx(0.0)
+
+
+class TestIsing2DPeriodicBoundary:
+    """Tests for periodic boundary conditions in 2D."""
+
+    def test_2d_periodic_boundary_neighbors(self):
+        """Test that periodic BC wraps correctly."""
+        model = Ising2D(size=10, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # Corner (0, 0) should have 4 neighbors due to wrapping
+        # Neighbors: (9, 0), (1, 0), (0, 9), (0, 1)
+        assert model.get_neighbor_sum((0, 0)) == 4
+
+        # Set corner neighbors to -1 to verify wrapping
+        model._spins[9, 0] = -1  # Top wraps to bottom
+        model._spins[0, 9] = -1  # Left wraps to right
+
+        # Now sum should be 4 - 2 - 2 = 0 (two +1, two -1)
+        assert model.get_neighbor_sum((0, 0)) == 0
+
+    def test_2d_periodic_boundary_energy_consistency(self):
+        """Test energy calculation with periodic BC."""
+        model = Ising2D(size=5, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # Flip edge spin and verify energy change
+        site = (0, 0)
+        expected_dE = model.get_energy_change(site)
+        initial_E = model.get_energy()
+
+        model.flip_spin(site)
+        final_E = model.get_energy()
+
+        assert final_E - initial_E == pytest.approx(expected_dE)
+
+
+class TestIsing2DEnergyChange:
+    """Tests for 2D energy change calculations."""
+
+    def test_2d_energy_change_values_periodic(self):
+        """Test that energy changes are only -8, -4, 0, 4, 8 for periodic BC."""
+        model = Ising2D(size=20, temperature=2.0, boundary="periodic")
+        model.set_seed(42)
+        model.initialize("random")
+
+        valid_changes = {-8.0, -4.0, 0.0, 4.0, 8.0}
+        observed_changes = set()
+
+        for i in range(model.size):
+            for j in range(model.size):
+                dE = model.get_energy_change((i, j))
+                observed_changes.add(dE)
+                assert dE in valid_changes, f"Invalid energy change: {dE}"
+
+        # Should observe multiple values with random config
+        assert len(observed_changes) >= 3
+
+    def test_2d_energy_change_all_aligned(self):
+        """Test energy change for flipping aligned spin."""
+        model = Ising2D(size=10, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # All neighbors +1, so dE = 2*J*1*4 = 8
+        for i in range(model.size):
+            for j in range(model.size):
+                assert model.get_energy_change((i, j)) == pytest.approx(8.0)
+
+    def test_2d_energy_change_consistency(self):
+        """Test that predicted energy change matches actual change."""
+        model = Ising2D(size=10, temperature=2.0, boundary="periodic")
+        model.set_seed(123)
+        model.initialize("random")
+
+        # Test multiple random sites
+        for _ in range(20):
+            site = model.random_site()
+            initial_E = model.get_energy()
+            expected_dE = model.get_energy_change(site)
+
+            model.flip_spin(site)
+            final_E = model.get_energy()
+
+            assert final_E - initial_E == pytest.approx(expected_dE)
+
+            # Flip back for next iteration
+            model.flip_spin(site)
+
+
+class TestIsing2DFlipSpin:
+    """Tests for 2D spin flip operations."""
+
+    def test_2d_flip_preserves_lattice_values(self):
+        """Test that flip only changes values to ±1."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("random")
+
+        # Flip many spins
+        for _ in range(100):
+            site = model.random_site()
+            model.flip_spin(site)
+
+        # All values should still be ±1
+        assert np.all(np.abs(model.spins) == 1)
+
+    def test_2d_flip_spin_value(self):
+        """Test that flip reverses spin."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("up")
+
+        site = (5, 5)
+        original = model.spins[site]
+        model.flip_spin(site)
+
+        assert model.spins[site] == -original
+
+    def test_2d_flip_magnetization_change(self):
+        """Test magnetization changes by ±2 after flip."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("up")
+
+        initial_mag = model.get_magnetization()
+        model.flip_spin((5, 5))
+        new_mag = model.get_magnetization()
+
+        assert new_mag - initial_mag == -2
+
+
+class TestIsing2DNeighborSum:
+    """Tests for 2D neighbor sum calculations."""
+
+    def test_2d_neighbor_sum_all_up(self):
+        """Test neighbor sum when all spins up."""
+        model = Ising2D(size=10, temperature=2.0, boundary="periodic")
+        model.initialize("up")
+
+        # All neighbors +1, so sum is 4
+        for i in range(model.size):
+            for j in range(model.size):
+                assert model.get_neighbor_sum((i, j)) == 4
+
+    def test_2d_neighbor_sum_checkerboard(self):
+        """Test neighbor sum for checkerboard pattern."""
+        model = Ising2D(size=10, temperature=2.0, boundary="periodic")
+        model.initialize("checkerboard")
+
+        # Each spin has 4 anti-aligned neighbors
+        for i in range(model.size):
+            for j in range(model.size):
+                spin = model.spins[i, j]
+                neighbor_sum = model.get_neighbor_sum((i, j))
+                assert neighbor_sum == -4 * spin
+
+    def test_2d_neighbor_sum_fixed_bc(self):
+        """Test neighbor sum for fixed BC (edges have fewer neighbors)."""
+        model = Ising2D(size=10, temperature=2.0, boundary="fixed")
+        model.initialize("up")
+
+        # Corner has 2 neighbors
+        assert model.get_neighbor_sum((0, 0)) == 2
+        assert model.get_neighbor_sum((9, 9)) == 2
+
+        # Edge (non-corner) has 3 neighbors
+        assert model.get_neighbor_sum((0, 5)) == 3
+        assert model.get_neighbor_sum((5, 0)) == 3
+
+        # Interior has 4 neighbors
+        assert model.get_neighbor_sum((5, 5)) == 4
+
+
+class TestIsing2DCopy:
+    """Tests for 2D model copying."""
+
+    def test_2d_copy_independence(self):
+        """Test that copy is independent."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("random")
+
+        copy = model.copy()
+        model.flip_spin((5, 5))
+
+        assert copy.spins[5, 5] != model.spins[5, 5]
+
+    def test_2d_copy_parameters(self):
+        """Test that copy has same parameters."""
+        model = Ising2D(size=16, temperature=2.5, coupling=1.5, boundary="fixed")
+        model.initialize("up")
+
+        copy = model.copy()
+
+        assert copy.size == model.size
+        assert copy.temperature == model.temperature
+        assert copy.coupling == model.coupling
+        assert copy.boundary == model.boundary
+        np.testing.assert_array_equal(copy.spins, model.spins)
+
+
+class TestIsing2DRandomSite:
+    """Tests for 2D random site selection."""
+
+    def test_2d_random_site_range(self):
+        """Test random sites are in valid range."""
+        model = Ising2D(size=10, temperature=2.0)
+
+        for _ in range(100):
+            site = model.random_site()
+            assert len(site) == 2
+            assert 0 <= site[0] < model.size
+            assert 0 <= site[1] < model.size
+
+    def test_2d_random_site_tuple(self):
+        """Test that random_site returns a tuple."""
+        model = Ising2D(size=10, temperature=2.0)
+        site = model.random_site()
+
+        assert isinstance(site, tuple)
+        assert len(site) == 2
+
+
+class TestIsing2DConfigurationImage:
+    """Tests for configuration image output."""
+
+    def test_2d_configuration_image_shape(self):
+        """Test image has correct shape."""
+        model = Ising2D(size=32, temperature=2.0)
+        model.initialize("random")
+
+        img = model.get_configuration_image()
+
+        assert img.shape == (32, 32)
+
+    def test_2d_configuration_image_values(self):
+        """Test image contains only ±1."""
+        model = Ising2D(size=32, temperature=2.0)
+        model.initialize("random")
+
+        img = model.get_configuration_image()
+
+        assert np.all(np.abs(img) == 1)
+
+    def test_2d_configuration_image_copy(self):
+        """Test image is a copy, not a view."""
+        model = Ising2D(size=10, temperature=2.0)
+        model.initialize("up")
+
+        img = model.get_configuration_image()
+        img[0, 0] = -1
+
+        # Original should be unchanged
+        assert model.spins[0, 0] == 1
+
+
+class TestIsing2DCriticalTemperature:
+    """Tests for critical temperature awareness."""
+
+    def test_2d_is_near_critical(self):
+        """Test detection of near-critical temperature."""
+        model = Ising2D(size=10, temperature=CRITICAL_TEMP_2D)
+
+        assert model.is_near_critical(tolerance=0.01)
+
+    def test_2d_not_near_critical(self):
+        """Test detection of far-from-critical temperature."""
+        model = Ising2D(size=10, temperature=1.0)  # Well below Tc
+        assert not model.is_near_critical(tolerance=0.1)
+
+        model = Ising2D(size=10, temperature=4.0)  # Well above Tc
+        assert not model.is_near_critical(tolerance=0.1)
+
+
+class TestIsing2DRepr:
+    """Tests for 2D string representation."""
+
+    def test_2d_repr(self):
+        """Test __repr__ output."""
+        model = Ising2D(size=16, temperature=2.269, boundary="periodic")
+        repr_str = repr(model)
+
+        assert "Ising2D" in repr_str
+        assert "size=16" in repr_str
+        assert "n_spins=256" in repr_str
         assert "periodic" in repr_str
