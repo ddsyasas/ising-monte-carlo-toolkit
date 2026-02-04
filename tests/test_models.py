@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from ising_toolkit.models import Ising1D, Ising2D
-from ising_toolkit.utils import ConfigurationError, CRITICAL_TEMP_2D
+from ising_toolkit.models import Ising1D, Ising2D, Ising3D
+from ising_toolkit.utils import ConfigurationError, CRITICAL_TEMP_2D, CRITICAL_TEMP_3D
 
 
 class TestIsing1DInitialization:
@@ -934,4 +934,401 @@ class TestIsing2DRepr:
         assert "Ising2D" in repr_str
         assert "size=16" in repr_str
         assert "n_spins=256" in repr_str
+        assert "periodic" in repr_str
+
+
+# =============================================================================
+# 3D Ising Model Tests
+# =============================================================================
+
+
+class TestIsing3DInitialization:
+    """Tests for Ising3D initialization."""
+
+    def test_3d_initialization(self):
+        """Test that 3D model initializes correctly."""
+        model = Ising3D(size=8, temperature=4.0)
+
+        assert model.size == 8
+        assert model.n_spins == 512  # 8^3
+        assert model.shape == (8, 8, 8)
+        assert model.spins.shape == (8, 8, 8)
+        assert model.dimension == 3
+
+    def test_3d_n_neighbors(self):
+        """Test that 3D model has 6 neighbors per spin."""
+        model = Ising3D(size=8, temperature=4.0)
+        assert model.n_neighbors == 6
+
+    def test_3d_initialization_parameters(self):
+        """Test that parameters are set correctly."""
+        model = Ising3D(
+            size=10, temperature=4.511, coupling=1.5, boundary="fixed"
+        )
+
+        assert model.size == 10
+        assert model.temperature == pytest.approx(4.511)
+        assert model.coupling == 1.5
+        assert model.boundary == "fixed"
+
+    def test_3d_initialization_invalid(self):
+        """Test that invalid parameters raise errors."""
+        with pytest.raises(ConfigurationError):
+            Ising3D(size=1, temperature=4.0)  # Too small
+        with pytest.raises(ConfigurationError):
+            Ising3D(size=8, temperature=-1.0)  # Invalid temp
+
+
+class TestIsing3DStateInitialization:
+    """Tests for 3D spin state initialization."""
+
+    def test_3d_initialization_up(self):
+        """Test 'up' initialization."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("up")
+
+        assert np.all(model.spins == 1)
+
+    def test_3d_initialization_down(self):
+        """Test 'down' initialization."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("down")
+
+        assert np.all(model.spins == -1)
+
+    def test_3d_initialization_random(self):
+        """Test random initialization."""
+        model = Ising3D(size=10, temperature=4.0)
+        model.set_seed(42)
+        model.initialize("random")
+
+        # Should have both +1 and -1
+        assert np.any(model.spins == 1)
+        assert np.any(model.spins == -1)
+        # All values should be ±1
+        assert np.all(np.abs(model.spins) == 1)
+
+    def test_3d_initialization_checkerboard(self):
+        """Test checkerboard initialization (3D Néel state)."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("checkerboard")
+
+        # Check pattern: (i+j+k) even -> +1, odd -> -1
+        for i in range(model.size):
+            for j in range(model.size):
+                for k in range(model.size):
+                    expected = 1 if (i + j + k) % 2 == 0 else -1
+                    assert model.spins[i, j, k] == expected
+
+
+class TestIsing3DEnergy:
+    """Tests for 3D energy calculations."""
+
+    def test_3d_energy_ground_state_periodic(self):
+        """Test energy for ground state (all aligned) with periodic BC.
+
+        For periodic BC: E = -J * 3 * N (3 bonds per spin on average)
+        """
+        L = 8
+        N = L ** 3
+        model = Ising3D(size=L, temperature=4.0, boundary="periodic")
+        model.initialize("up")
+
+        # Total bonds = 3 * N for periodic (N in each of x, y, z directions)
+        expected_energy = -1.0 * 3 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_3d_energy_ground_state_fixed(self):
+        """Test energy for ground state with fixed BC."""
+        L = 8
+        model = Ising3D(size=L, temperature=4.0, boundary="fixed")
+        model.initialize("up")
+
+        # For fixed BC: 3 * L^2 * (L-1) bonds
+        n_bonds = 3 * L * L * (L - 1)
+        expected_energy = -1.0 * n_bonds
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_3d_energy_antiferromagnetic_periodic(self):
+        """Test energy for antiferromagnetic (checkerboard) state.
+
+        All bonds anti-aligned: E = +J * 3 * N
+        """
+        L = 8
+        N = L ** 3
+        model = Ising3D(size=L, temperature=4.0, boundary="periodic")
+        model.initialize("checkerboard")
+
+        # All neighbors are anti-aligned
+        expected_energy = 1.0 * 3 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_3d_energy_with_coupling(self):
+        """Test energy scales with coupling constant."""
+        L = 6
+        N = L ** 3
+        J = 2.0
+        model = Ising3D(size=L, temperature=4.0, coupling=J, boundary="periodic")
+        model.initialize("up")
+
+        expected_energy = -J * 3 * N
+        assert model.get_energy() == pytest.approx(expected_energy)
+
+    def test_3d_energy_per_spin(self):
+        """Test energy per spin for ground state."""
+        model = Ising3D(size=10, temperature=4.0, boundary="periodic")
+        model.initialize("up")
+
+        # e = E/N = -3J for ground state
+        assert model.get_energy_per_spin() == pytest.approx(-3.0)
+
+
+class TestIsing3DMagnetization:
+    """Tests for 3D magnetization calculations."""
+
+    def test_3d_magnetization_ground_state(self):
+        """Test magnetization for all-up state."""
+        L = 8
+        N = L ** 3
+        model = Ising3D(size=L, temperature=4.0)
+        model.initialize("up")
+
+        assert model.get_magnetization() == N
+        assert model.get_magnetization_per_spin() == pytest.approx(1.0)
+
+    def test_3d_magnetization_checkerboard(self):
+        """Test magnetization for checkerboard (should be 0 for even size)."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("checkerboard")
+
+        assert model.get_magnetization() == 0
+        assert model.get_magnetization_per_spin() == pytest.approx(0.0)
+
+
+class TestIsing3DEnergyChange:
+    """Tests for 3D energy change calculations."""
+
+    def test_3d_energy_change_values(self):
+        """Test that energy changes are only -12, -8, -4, 0, 4, 8, 12."""
+        model = Ising3D(size=10, temperature=4.0, boundary="periodic")
+        model.set_seed(42)
+        model.initialize("random")
+
+        valid_changes = {-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0}
+        observed_changes = set()
+
+        # Sample many sites
+        for _ in range(500):
+            site = model.random_site()
+            dE = model.get_energy_change(site)
+            observed_changes.add(dE)
+            assert dE in valid_changes, f"Invalid energy change: {dE}"
+
+        # Should observe multiple values with random config
+        assert len(observed_changes) >= 4
+
+    def test_3d_energy_change_all_aligned(self):
+        """Test energy change for flipping aligned spin."""
+        model = Ising3D(size=8, temperature=4.0, boundary="periodic")
+        model.initialize("up")
+
+        # All neighbors +1, so dE = 2*J*1*6 = 12
+        site = (4, 4, 4)
+        assert model.get_energy_change(site) == pytest.approx(12.0)
+
+    def test_3d_energy_change_consistency(self):
+        """Test that predicted energy change matches actual change."""
+        model = Ising3D(size=8, temperature=4.0, boundary="periodic")
+        model.set_seed(123)
+        model.initialize("random")
+
+        # Test multiple random sites
+        for _ in range(20):
+            site = model.random_site()
+            initial_E = model.get_energy()
+            expected_dE = model.get_energy_change(site)
+
+            model.flip_spin(site)
+            final_E = model.get_energy()
+
+            assert final_E - initial_E == pytest.approx(expected_dE)
+
+            # Flip back for next iteration
+            model.flip_spin(site)
+
+
+class TestIsing3DNeighborSum:
+    """Tests for 3D neighbor sum calculations."""
+
+    def test_3d_neighbor_sum_all_up(self):
+        """Test neighbor sum when all spins up."""
+        model = Ising3D(size=8, temperature=4.0, boundary="periodic")
+        model.initialize("up")
+
+        # All neighbors +1, so sum is 6
+        site = (4, 4, 4)
+        assert model.get_neighbor_sum(site) == 6
+
+    def test_3d_neighbor_sum_checkerboard(self):
+        """Test neighbor sum for checkerboard pattern."""
+        model = Ising3D(size=8, temperature=4.0, boundary="periodic")
+        model.initialize("checkerboard")
+
+        # Each spin has 6 anti-aligned neighbors
+        site = (4, 4, 4)
+        spin = model.spins[site]
+        neighbor_sum = model.get_neighbor_sum(site)
+        assert neighbor_sum == -6 * spin
+
+    def test_3d_neighbor_sum_fixed_bc(self):
+        """Test neighbor sum for fixed BC."""
+        model = Ising3D(size=8, temperature=4.0, boundary="fixed")
+        model.initialize("up")
+
+        # Corner has 3 neighbors
+        assert model.get_neighbor_sum((0, 0, 0)) == 3
+
+        # Edge has 4 neighbors
+        assert model.get_neighbor_sum((0, 0, 4)) == 4
+
+        # Face has 5 neighbors
+        assert model.get_neighbor_sum((0, 4, 4)) == 5
+
+        # Interior has 6 neighbors
+        assert model.get_neighbor_sum((4, 4, 4)) == 6
+
+
+class TestIsing3DFlipSpin:
+    """Tests for 3D spin flip operations."""
+
+    def test_3d_flip_preserves_lattice_values(self):
+        """Test that flip only changes values to ±1."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("random")
+
+        # Flip many spins
+        for _ in range(100):
+            site = model.random_site()
+            model.flip_spin(site)
+
+        # All values should still be ±1
+        assert np.all(np.abs(model.spins) == 1)
+
+    def test_3d_flip_spin_value(self):
+        """Test that flip reverses spin."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("up")
+
+        site = (4, 4, 4)
+        original = model.spins[site]
+        model.flip_spin(site)
+
+        assert model.spins[site] == -original
+
+
+class TestIsing3DCopy:
+    """Tests for 3D model copying."""
+
+    def test_3d_copy_independence(self):
+        """Test that copy is independent."""
+        model = Ising3D(size=8, temperature=4.0)
+        model.initialize("random")
+
+        copy = model.copy()
+        model.flip_spin((4, 4, 4))
+
+        assert copy.spins[4, 4, 4] != model.spins[4, 4, 4]
+
+    def test_3d_copy_parameters(self):
+        """Test that copy has same parameters."""
+        model = Ising3D(size=8, temperature=4.5, coupling=1.5, boundary="fixed")
+        model.initialize("up")
+
+        copy = model.copy()
+
+        assert copy.size == model.size
+        assert copy.temperature == model.temperature
+        assert copy.coupling == model.coupling
+        assert copy.boundary == model.boundary
+        np.testing.assert_array_equal(copy.spins, model.spins)
+
+
+class TestIsing3DRandomSite:
+    """Tests for 3D random site selection."""
+
+    def test_3d_random_site_range(self):
+        """Test random sites are in valid range."""
+        model = Ising3D(size=8, temperature=4.0)
+
+        for _ in range(100):
+            site = model.random_site()
+            assert len(site) == 3
+            assert 0 <= site[0] < model.size
+            assert 0 <= site[1] < model.size
+            assert 0 <= site[2] < model.size
+
+    def test_3d_random_site_tuple(self):
+        """Test that random_site returns a tuple."""
+        model = Ising3D(size=8, temperature=4.0)
+        site = model.random_site()
+
+        assert isinstance(site, tuple)
+        assert len(site) == 3
+
+
+class TestIsing3DConfigurationSlice:
+    """Tests for 3D configuration slice output."""
+
+    def test_3d_configuration_slice_shape(self):
+        """Test slice has correct shape."""
+        model = Ising3D(size=16, temperature=4.0)
+        model.initialize("random")
+
+        slice_xy = model.get_configuration_slice(axis=2, index=8)
+        assert slice_xy.shape == (16, 16)
+
+        slice_xz = model.get_configuration_slice(axis=1, index=8)
+        assert slice_xz.shape == (16, 16)
+
+        slice_yz = model.get_configuration_slice(axis=0, index=8)
+        assert slice_yz.shape == (16, 16)
+
+    def test_3d_configuration_slice_values(self):
+        """Test slice contains only ±1."""
+        model = Ising3D(size=16, temperature=4.0)
+        model.initialize("random")
+
+        slice_xy = model.get_configuration_slice()
+        assert np.all(np.abs(slice_xy) == 1)
+
+
+class TestIsing3DCriticalTemperature:
+    """Tests for 3D critical temperature awareness."""
+
+    def test_3d_is_near_critical(self):
+        """Test detection of near-critical temperature."""
+        model = Ising3D(size=8, temperature=CRITICAL_TEMP_3D)
+
+        assert model.is_near_critical(tolerance=0.01)
+
+    def test_3d_not_near_critical(self):
+        """Test detection of far-from-critical temperature."""
+        model = Ising3D(size=8, temperature=2.0)  # Well below Tc
+        assert not model.is_near_critical(tolerance=0.1)
+
+        model = Ising3D(size=8, temperature=8.0)  # Well above Tc
+        assert not model.is_near_critical(tolerance=0.1)
+
+
+class TestIsing3DRepr:
+    """Tests for 3D string representation."""
+
+    def test_3d_repr(self):
+        """Test __repr__ output."""
+        model = Ising3D(size=8, temperature=4.511, boundary="periodic")
+        repr_str = repr(model)
+
+        assert "Ising3D" in repr_str
+        assert "size=8" in repr_str
+        assert "n_spins=512" in repr_str
         assert "periodic" in repr_str
