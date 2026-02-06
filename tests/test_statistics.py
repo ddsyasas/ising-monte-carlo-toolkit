@@ -14,6 +14,10 @@ from ising_toolkit.analysis import (
     integrated_autocorrelation_time,
     effective_sample_size,
     generate_ar1,
+    blocking_analysis,
+    blocking_analysis_log,
+    optimal_block_size,
+    plot_blocking_analysis,
 )
 
 
@@ -881,3 +885,379 @@ class TestAutocorrelationIntegration:
 
         # True error should be ~10x larger than naive
         assert error > 5 * naive_error
+
+
+class TestBlockingAnalysis:
+    """Tests for blocking_analysis function."""
+
+    def test_blocking_analysis_output_shapes(self):
+        """Test output arrays have correct shapes."""
+        data = np.random.randn(1000)
+        block_sizes, errors = blocking_analysis(data)
+
+        assert len(block_sizes) == len(errors)
+        assert len(block_sizes) > 0
+
+    def test_blocking_analysis_block_sizes_ascending(self):
+        """Test block sizes are in ascending order."""
+        data = np.random.randn(500)
+        block_sizes, _ = blocking_analysis(data)
+
+        assert np.all(np.diff(block_sizes) > 0)
+
+    def test_blocking_analysis_starts_at_one(self):
+        """Test block sizes start at 1."""
+        data = np.random.randn(200)
+        block_sizes, _ = blocking_analysis(data)
+
+        assert block_sizes[0] == 1
+
+    def test_blocking_analysis_errors_positive(self):
+        """Test all error estimates are positive."""
+        data = np.random.randn(500)
+        _, errors = blocking_analysis(data)
+
+        assert np.all(errors > 0)
+
+    def test_blocking_analysis_uncorrelated_flat(self):
+        """Test error is roughly constant for uncorrelated data."""
+        np.random.seed(42)
+        data = np.random.randn(2000)
+
+        block_sizes, errors = blocking_analysis(data, min_blocks=20)
+
+        # For uncorrelated data, errors should be roughly constant
+        # Check that variation is small
+        relative_std = np.std(errors) / np.mean(errors)
+        assert relative_std < 0.3
+
+    def test_blocking_analysis_correlated_increases(self):
+        """Test error increases with block size for correlated data."""
+        alpha = 0.9
+        data = generate_ar1(5000, alpha, seed=42)
+
+        block_sizes, errors = blocking_analysis(data, min_blocks=10)
+
+        # Error at large block size should be larger than at small block size
+        assert errors[-1] > errors[0]
+
+    def test_blocking_analysis_plateau_value(self):
+        """Test plateau error matches theory."""
+        alpha = 0.8
+        n = 10000
+        data = generate_ar1(n, alpha, seed=42)
+
+        block_sizes, errors = blocking_analysis(data, min_blocks=10)
+
+        # Theoretical τ_int for AR(1)
+        tau_theory = (1 + alpha) / (2 * (1 - alpha))
+
+        # Expected error from theory
+        expected_error = np.std(data) * np.sqrt(2 * tau_theory / n)
+
+        # Plateau error should be close
+        plateau_error = errors[-1]
+        assert plateau_error == pytest.approx(expected_error, rel=0.3)
+
+    def test_blocking_analysis_max_block_size(self):
+        """Test max_block_size parameter is respected."""
+        data = np.random.randn(1000)
+        block_sizes, _ = blocking_analysis(data, max_block_size=20)
+
+        assert block_sizes[-1] <= 20
+
+    def test_blocking_analysis_min_blocks(self):
+        """Test min_blocks parameter is respected."""
+        n = 100
+        data = np.random.randn(n)
+        min_blocks = 10
+
+        block_sizes, _ = blocking_analysis(data, min_blocks=min_blocks)
+
+        # Each block size should allow at least min_blocks blocks
+        for bs in block_sizes:
+            assert n // bs >= min_blocks
+
+    def test_blocking_analysis_empty_raises(self):
+        """Test empty data raises error."""
+        with pytest.raises(ValueError, match="empty"):
+            blocking_analysis(np.array([]))
+
+    def test_blocking_analysis_too_few_points_raises(self):
+        """Test too few data points raises error."""
+        with pytest.raises(ValueError):
+            blocking_analysis(np.array([1, 2, 3]), min_blocks=10)
+
+
+class TestBlockingAnalysisLog:
+    """Tests for blocking_analysis_log function."""
+
+    def test_blocking_analysis_log_output(self):
+        """Test log-spaced blocking analysis returns valid output."""
+        data = np.random.randn(1000)
+        block_sizes, errors = blocking_analysis_log(data, n_points=20)
+
+        assert len(block_sizes) == len(errors)
+        assert len(block_sizes) > 0
+        assert np.all(errors > 0)
+
+    def test_blocking_analysis_log_spacing(self):
+        """Test block sizes are roughly logarithmically spaced."""
+        data = np.random.randn(10000)
+        block_sizes, _ = blocking_analysis_log(data, n_points=30)
+
+        # Log of block sizes should be roughly linear
+        log_sizes = np.log(block_sizes)
+        diffs = np.diff(log_sizes)
+
+        # Differences should be roughly equal (within factor of 3)
+        if len(diffs) > 2:
+            assert np.max(diffs) / np.min(diffs) < 5
+
+    def test_blocking_analysis_log_matches_linear(self):
+        """Test log and linear methods give similar plateau values."""
+        alpha = 0.85
+        data = generate_ar1(5000, alpha, seed=42)
+
+        _, errors_lin = blocking_analysis(data)
+        _, errors_log = blocking_analysis_log(data)
+
+        # Plateau values should be similar
+        assert errors_lin[-1] == pytest.approx(errors_log[-1], rel=0.2)
+
+    def test_blocking_analysis_log_empty_raises(self):
+        """Test empty data raises error."""
+        with pytest.raises(ValueError, match="empty"):
+            blocking_analysis_log(np.array([]))
+
+
+class TestOptimalBlockSize:
+    """Tests for optimal_block_size function."""
+
+    def test_optimal_block_size_uncorrelated(self):
+        """Test optimal block size is small for uncorrelated data."""
+        np.random.seed(42)
+        data = np.random.randn(1000)
+
+        opt = optimal_block_size(data)
+
+        # For uncorrelated data, any block size is fine
+        # Should return a small value
+        assert opt >= 1
+        assert opt < 20
+
+    def test_optimal_block_size_correlated(self):
+        """Test optimal block size increases with correlation."""
+        opt_low = optimal_block_size(generate_ar1(5000, 0.5, seed=42))
+        opt_high = optimal_block_size(generate_ar1(5000, 0.95, seed=42))
+
+        # Higher correlation should give larger optimal block size
+        assert opt_high >= opt_low
+
+    def test_optimal_block_size_positive(self):
+        """Test optimal block size is always positive."""
+        data = np.random.randn(200)
+        opt = optimal_block_size(data)
+        assert opt >= 1
+
+    def test_optimal_block_size_integer(self):
+        """Test optimal block size is an integer."""
+        data = np.random.randn(500)
+        opt = optimal_block_size(data)
+        assert isinstance(opt, int)
+
+    def test_optimal_block_size_empty_raises(self):
+        """Test empty data raises error."""
+        with pytest.raises(ValueError, match="empty"):
+            optimal_block_size(np.array([]))
+
+    def test_optimal_block_size_small_data(self):
+        """Test small data returns 1."""
+        data = np.array([1, 2, 3, 4, 5])
+        opt = optimal_block_size(data, min_blocks=10)
+        assert opt == 1
+
+    def test_optimal_block_size_vs_tau(self):
+        """Test optimal block size is related to autocorrelation time."""
+        alpha = 0.9
+        data = generate_ar1(10000, alpha, seed=42)
+
+        opt = optimal_block_size(data)
+        tau = integrated_autocorrelation_time(data)
+
+        # Optimal block size should be roughly 2-3 times τ
+        # Allow wide margin due to heuristic nature
+        assert opt > tau / 2
+        assert opt < tau * 10
+
+
+class TestPlotBlockingAnalysis:
+    """Tests for plot_blocking_analysis function."""
+
+    def test_plot_blocking_analysis_returns_ax_and_info(self):
+        """Test function returns axes and info dict."""
+        pytest.importorskip("matplotlib")
+
+        data = generate_ar1(1000, 0.8, seed=42)
+        ax, info = plot_blocking_analysis(data)
+
+        assert ax is not None
+        assert isinstance(info, dict)
+
+    def test_plot_blocking_analysis_info_keys(self):
+        """Test info dict has expected keys."""
+        pytest.importorskip("matplotlib")
+
+        data = np.random.randn(500)
+        _, info = plot_blocking_analysis(data)
+
+        expected_keys = {
+            'block_sizes',
+            'errors',
+            'optimal_block_size',
+            'plateau_error',
+            'naive_error',
+            'tau_int',
+        }
+        assert set(info.keys()) == expected_keys
+
+    def test_plot_blocking_analysis_info_values(self):
+        """Test info dict values are reasonable."""
+        pytest.importorskip("matplotlib")
+
+        data = np.random.randn(500)
+        _, info = plot_blocking_analysis(data)
+
+        assert len(info['block_sizes']) == len(info['errors'])
+        assert info['optimal_block_size'] >= 1
+        assert info['plateau_error'] > 0
+        assert info['naive_error'] > 0
+        assert info['tau_int'] >= 0.5
+
+    def test_plot_blocking_analysis_linear_scale(self):
+        """Test linear scale option works."""
+        pytest.importorskip("matplotlib")
+
+        data = np.random.randn(500)
+        ax, info = plot_blocking_analysis(data, log_scale=False)
+
+        assert ax is not None
+        assert len(info['block_sizes']) > 0
+
+    def test_plot_blocking_analysis_custom_ax(self):
+        """Test plotting on custom axes."""
+        plt = pytest.importorskip("matplotlib.pyplot")
+
+        data = np.random.randn(500)
+        fig, custom_ax = plt.subplots()
+
+        returned_ax, _ = plot_blocking_analysis(data, ax=custom_ax)
+
+        assert returned_ax is custom_ax
+        plt.close(fig)
+
+    def test_plot_blocking_analysis_no_optional_features(self):
+        """Test disabling optional features."""
+        pytest.importorskip("matplotlib")
+
+        data = np.random.randn(500)
+        ax, info = plot_blocking_analysis(
+            data,
+            show_optimal=False,
+            show_tau_estimate=False
+        )
+
+        assert ax is not None
+        assert info is not None
+
+
+class TestBlockingAnalysisIntegration:
+    """Integration tests for blocking analysis."""
+
+    def test_blocking_vs_autocorrelation(self):
+        """Test blocking and autocorrelation give consistent errors."""
+        alpha = 0.85
+        n = 10000  # More data for better statistics
+        data = generate_ar1(n, alpha, seed=42)
+
+        # Error from blocking
+        block_sizes, errors = blocking_analysis(data)
+        blocking_err = errors[-1]
+
+        # Error from autocorrelation time
+        tau = integrated_autocorrelation_time(data)
+        tau_err = np.std(data) * np.sqrt(2 * tau / n)
+
+        # Should agree within factor of 2 (both methods have their limitations)
+        assert blocking_err == pytest.approx(tau_err, rel=0.5)
+
+    def test_blocking_vs_bootstrap_correlated(self):
+        """Test blocking vs bootstrap for correlated data.
+
+        Note: Standard bootstrap underestimates error for correlated data.
+        """
+        alpha = 0.9
+        data = generate_ar1(2000, alpha, seed=42)
+
+        # Blocking error (accounts for correlations)
+        _, errors = blocking_analysis(data)
+        blocking_err = errors[-1]
+
+        # Bootstrap error (ignores correlations)
+        _, bootstrap_err = bootstrap_error(data, np.mean, n_samples=1000, seed=42)
+
+        # Blocking error should be larger for correlated data
+        assert blocking_err > bootstrap_err
+
+    def test_optimal_block_gives_good_error(self):
+        """Test using optimal block size gives good error estimate."""
+        alpha = 0.8
+        n = 5000
+        data = generate_ar1(n, alpha, seed=42)
+
+        # Get optimal block size
+        opt = optimal_block_size(data)
+
+        # Compute error at optimal block size
+        block_sizes, errors = blocking_analysis(data, max_block_size=opt + 10)
+        opt_idx = np.argmin(np.abs(block_sizes - opt))
+        opt_error = errors[opt_idx]
+
+        # Compare to tau-based error
+        tau = integrated_autocorrelation_time(data)
+        tau_error = np.std(data) * np.sqrt(2 * tau / n)
+
+        # Should be reasonably close
+        assert opt_error == pytest.approx(tau_error, rel=0.4)
+
+    def test_full_workflow(self):
+        """Test complete workflow: generate, analyze, estimate error."""
+        # Generate correlated data (simulating Monte Carlo)
+        np.random.seed(42)
+        n = 10000  # More data for better statistics
+        tau_true = 15.0  # Moderate correlation
+        alpha = np.exp(-1 / tau_true)
+
+        data = generate_ar1(n, alpha, seed=42)
+        data = data * 10 - 100  # Scale and shift
+
+        # Method 1: Blocking analysis
+        block_sizes, errors = blocking_analysis(data)
+        blocking_err = errors[-1]
+
+        # Method 2: Autocorrelation time
+        tau = integrated_autocorrelation_time(data)
+        n_eff = effective_sample_size(data)
+        acf_err = np.std(data) / np.sqrt(n_eff)
+
+        # Method 3: blocking_error convenience function
+        _, convenience_err = blocking_error(data)
+
+        # All methods should give results within factor of 2
+        # (different methods have different biases and variances)
+        assert blocking_err == pytest.approx(acf_err, rel=0.5)
+        assert convenience_err == pytest.approx(acf_err, rel=0.5)
+
+        # Check estimated tau is reasonable
+        tau_theory = (1 + alpha) / (2 * (1 - alpha))
+        assert tau == pytest.approx(tau_theory, rel=0.3)

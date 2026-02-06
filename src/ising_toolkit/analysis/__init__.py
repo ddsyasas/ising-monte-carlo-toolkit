@@ -18,6 +18,10 @@ from ising_toolkit.analysis.statistics import (
     integrated_autocorrelation_time,
     effective_sample_size,
     generate_ar1,
+    blocking_analysis,
+    blocking_analysis_log,
+    optimal_block_size,
+    plot_blocking_analysis,
 )
 
 __all__ = [
@@ -39,4 +43,9 @@ __all__ = [
     "integrated_autocorrelation_time",
     "effective_sample_size",
     "generate_ar1",
+    # Blocking analysis
+    "blocking_analysis",
+    "blocking_analysis_log",
+    "optimal_block_size",
+    "plot_blocking_analysis",
 ]

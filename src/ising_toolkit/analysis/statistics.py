@@ -721,3 +721,407 @@ def generate_ar1(
         x[t] = alpha * x[t - 1] + innovation_std * rng.standard_normal()
 
     return x
+
+
+def blocking_analysis(
+    data: np.ndarray,
+    max_block_size: Optional[int] = None,
+    min_blocks: int = 10,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Perform blocking analysis for error estimation.
+
+    Blocking analysis helps identify the true statistical error in
+    correlated time series data. As block size increases, the error
+    estimate should plateau when the block size exceeds the
+    autocorrelation time.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series of measurements.
+    max_block_size : int, optional
+        Maximum block size to try. Default is len(data) // min_blocks.
+    min_blocks : int, optional
+        Minimum number of blocks required at each block size.
+        Default is 10.
+
+    Returns
+    -------
+    block_sizes : np.ndarray
+        Array of block sizes used (1, 2, 3, ..., max_block_size).
+    errors : np.ndarray
+        Standard error estimate at each block size.
+
+    Notes
+    -----
+    The algorithm for each block_size:
+    1. Divide data into non-overlapping blocks
+    2. Compute mean of each block
+    3. Standard error = std(block_means) / sqrt(n_blocks)
+
+    For uncorrelated data, the error estimate is constant.
+    For correlated data, the error increases with block size until
+    it plateaus at the true statistical error.
+
+    The plateau value corresponds to:
+        error_true = std(data) * sqrt(2 * τ_int / n)
+
+    Examples
+    --------
+    >>> # Analyze correlated Monte Carlo data
+    >>> block_sizes, errors = blocking_analysis(energy_timeseries)
+    >>> plt.plot(block_sizes, errors)
+    >>> plt.xlabel('Block size')
+    >>> plt.ylabel('Standard error')
+
+    >>> # Find where error plateaus
+    >>> plateau_error = errors[-1]  # Approximate true error
+
+    References
+    ----------
+    H. Flyvbjerg and H. G. Petersen, "Error estimates on averages of
+    correlated data", J. Chem. Phys. 91, 461 (1989).
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n < min_blocks:
+        raise ValueError(
+            f"Data length ({n}) must be at least min_blocks ({min_blocks})"
+        )
+
+    if max_block_size is None:
+        max_block_size = n // min_blocks
+
+    # Ensure max_block_size is valid
+    max_block_size = min(max_block_size, n // min_blocks)
+
+    if max_block_size < 1:
+        max_block_size = 1
+
+    block_sizes = []
+    errors = []
+
+    for block_size in range(1, max_block_size + 1):
+        n_blocks = n // block_size
+
+        if n_blocks < min_blocks:
+            break
+
+        # Compute block averages
+        # Use only complete blocks
+        block_data = data[: n_blocks * block_size].reshape(n_blocks, block_size)
+        block_means = np.mean(block_data, axis=1)
+
+        # Standard error of block means
+        error = np.std(block_means, ddof=1) / np.sqrt(n_blocks)
+
+        block_sizes.append(block_size)
+        errors.append(error)
+
+    return np.array(block_sizes), np.array(errors)
+
+
+def optimal_block_size(
+    data: np.ndarray,
+    min_blocks: int = 10,
+    plateau_threshold: float = 0.1,
+) -> int:
+    """Find optimal block size where error estimate plateaus.
+
+    The optimal block size is where increasing the block size no longer
+    significantly increases the error estimate, indicating that the
+    block size exceeds the autocorrelation time.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series of measurements.
+    min_blocks : int, optional
+        Minimum number of blocks required. Default is 10.
+    plateau_threshold : float, optional
+        Relative change threshold to detect plateau. Default is 0.1 (10%).
+        The plateau is detected when the relative increase in error
+        falls below this threshold.
+
+    Returns
+    -------
+    int
+        Optimal block size.
+
+    Notes
+    -----
+    The algorithm:
+    1. Perform blocking analysis
+    2. Find where the relative change in error drops below threshold
+    3. Return the corresponding block size
+
+    A simple heuristic: the optimal block size is roughly 2-3 times
+    the integrated autocorrelation time.
+
+    For uncorrelated data, returns 1 (any block size is fine).
+
+    Examples
+    --------
+    >>> block_size = optimal_block_size(energy_timeseries)
+    >>> print(f"Optimal block size: {block_size}")
+
+    >>> # Use optimal blocking for error estimation
+    >>> _, errors = blocking_analysis(data, max_block_size=block_size)
+    >>> true_error = errors[-1]
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n < min_blocks:
+        return 1
+
+    # Perform blocking analysis
+    block_sizes, errors = blocking_analysis(data, min_blocks=min_blocks)
+
+    if len(errors) < 2:
+        return 1
+
+    # Find where error plateaus
+    # Look for where relative change drops below threshold
+    for i in range(1, len(errors)):
+        relative_change = (errors[i] - errors[i - 1]) / errors[i - 1]
+
+        if relative_change < plateau_threshold:
+            # Found plateau, return this block size
+            return int(block_sizes[i])
+
+    # If no plateau found, return the largest block size
+    return int(block_sizes[-1])
+
+
+def blocking_analysis_log(
+    data: np.ndarray,
+    n_points: int = 20,
+    min_blocks: int = 10,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Perform blocking analysis with logarithmically spaced block sizes.
+
+    This is more efficient for long time series where you want to
+    explore a wide range of block sizes.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series of measurements.
+    n_points : int, optional
+        Number of block sizes to try. Default is 20.
+    min_blocks : int, optional
+        Minimum number of blocks required. Default is 10.
+
+    Returns
+    -------
+    block_sizes : np.ndarray
+        Array of block sizes used (logarithmically spaced).
+    errors : np.ndarray
+        Standard error estimate at each block size.
+
+    Examples
+    --------
+    >>> block_sizes, errors = blocking_analysis_log(energy, n_points=30)
+    >>> plt.semilogx(block_sizes, errors)
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    max_block_size = n // min_blocks
+
+    if max_block_size < 1:
+        return np.array([1]), np.array([np.std(data, ddof=1) / np.sqrt(n)])
+
+    # Generate logarithmically spaced block sizes
+    log_sizes = np.logspace(0, np.log10(max_block_size), n_points)
+    block_sizes_candidate = np.unique(np.round(log_sizes).astype(int))
+
+    block_sizes = []
+    errors = []
+
+    for block_size in block_sizes_candidate:
+        if block_size < 1:
+            continue
+
+        n_blocks = n // block_size
+
+        if n_blocks < min_blocks:
+            continue
+
+        # Compute block averages
+        block_data = data[: n_blocks * block_size].reshape(n_blocks, block_size)
+        block_means = np.mean(block_data, axis=1)
+
+        # Standard error
+        error = np.std(block_means, ddof=1) / np.sqrt(n_blocks)
+
+        block_sizes.append(block_size)
+        errors.append(error)
+
+    return np.array(block_sizes), np.array(errors)
+
+
+def plot_blocking_analysis(
+    data: np.ndarray,
+    ax=None,
+    log_scale: bool = True,
+    show_optimal: bool = True,
+    show_tau_estimate: bool = True,
+    **kwargs,
+):
+    """Plot blocking analysis results.
+
+    Creates a diagnostic plot showing how the error estimate varies
+    with block size. The plateau indicates the true statistical error.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series of measurements.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    log_scale : bool, optional
+        Use logarithmic x-axis. Default is True.
+    show_optimal : bool, optional
+        Mark the optimal block size. Default is True.
+    show_tau_estimate : bool, optional
+        Show estimated autocorrelation time. Default is True.
+    **kwargs
+        Additional keyword arguments passed to blocking_analysis_log
+        (if log_scale=True) or blocking_analysis (if log_scale=False).
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+    info : dict
+        Dictionary with analysis results:
+        - 'block_sizes': array of block sizes
+        - 'errors': array of error estimates
+        - 'optimal_block_size': optimal block size
+        - 'plateau_error': error estimate at plateau
+        - 'naive_error': naive error ignoring correlations
+        - 'tau_int': estimated integrated autocorrelation time
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> ax, info = plot_blocking_analysis(energy_timeseries)
+    >>> plt.show()
+    >>> print(f"True error: {info['plateau_error']:.4f}")
+
+    >>> # Custom plot
+    >>> fig, ax = plt.subplots()
+    >>> plot_blocking_analysis(data, ax=ax, log_scale=False)
+    >>> ax.set_title('Blocking Analysis')
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for plotting. "
+            "Install it with: pip install matplotlib"
+        )
+
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    # Perform blocking analysis
+    min_blocks = kwargs.pop('min_blocks', 10)
+
+    if log_scale:
+        n_points = kwargs.pop('n_points', 30)
+        block_sizes, errors = blocking_analysis_log(
+            data, n_points=n_points, min_blocks=min_blocks
+        )
+    else:
+        max_block_size = kwargs.pop('max_block_size', None)
+        block_sizes, errors = blocking_analysis(
+            data, max_block_size=max_block_size, min_blocks=min_blocks
+        )
+
+    # Compute additional statistics
+    naive_error = np.std(data, ddof=1) / np.sqrt(n)
+    opt_block = optimal_block_size(data, min_blocks=min_blocks)
+    tau_int = integrated_autocorrelation_time(data)
+    plateau_error = errors[-1] if len(errors) > 0 else naive_error
+
+    # Create plot
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Main plot
+    if log_scale:
+        ax.semilogx(block_sizes, errors, 'o-', markersize=4, label='Blocking error')
+    else:
+        ax.plot(block_sizes, errors, 'o-', markersize=4, label='Blocking error')
+
+    # Naive error line
+    ax.axhline(
+        naive_error,
+        color='gray',
+        linestyle='--',
+        alpha=0.7,
+        label=f'Naive error: {naive_error:.4g}'
+    )
+
+    # Plateau error line
+    ax.axhline(
+        plateau_error,
+        color='red',
+        linestyle='-',
+        alpha=0.7,
+        label=f'Plateau error: {plateau_error:.4g}'
+    )
+
+    # Mark optimal block size
+    if show_optimal and opt_block in block_sizes:
+        idx = np.where(block_sizes == opt_block)[0]
+        if len(idx) > 0:
+            ax.axvline(
+                opt_block,
+                color='green',
+                linestyle=':',
+                alpha=0.7,
+                label=f'Optimal block: {opt_block}'
+            )
+
+    ax.set_xlabel('Block size')
+    ax.set_ylabel('Standard error')
+    ax.legend(loc='best', fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    # Add tau estimate as text
+    if show_tau_estimate:
+        ax.text(
+            0.98, 0.02,
+            f'τ_int ≈ {tau_int:.1f}\nN_eff ≈ {n / (2 * tau_int):.0f}',
+            transform=ax.transAxes,
+            ha='right',
+            va='bottom',
+            fontsize=9,
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        )
+
+    # Prepare info dict
+    info = {
+        'block_sizes': block_sizes,
+        'errors': errors,
+        'optimal_block_size': opt_block,
+        'plateau_error': plateau_error,
+        'naive_error': naive_error,
+        'tau_int': tau_int,
+    }
+
+    return ax, info
