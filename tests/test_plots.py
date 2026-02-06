@@ -23,6 +23,13 @@ from ising_toolkit.visualization import (
     plot_spin_configuration_3d_slices,
     plot_energy_histogram,
     plot_time_series,
+    # Analysis-specific plots
+    plot_autocorrelation,
+    plot_blocking_analysis,
+    plot_correlation_time_comparison,
+    plot_equilibration_check,
+    plot_bootstrap_distribution,
+    plot_finite_size_scaling,
 )
 
 
@@ -1546,3 +1553,420 @@ class TestPlottingIntegration:
                 )
                 assert fig is not None
                 plt.close(fig)
+
+
+# ============================================================================
+# Tests for plot_autocorrelation
+# ============================================================================
+
+class TestPlotAutocorrelation:
+    """Tests for plot_autocorrelation function."""
+
+    @pytest.fixture
+    def correlated_data(self):
+        """Create correlated time series data."""
+        np.random.seed(42)
+        n = 2000
+        # AR(1) process with correlation
+        rho = 0.9
+        data = np.zeros(n)
+        data[0] = np.random.normal()
+        for i in range(1, n):
+            data[i] = rho * data[i-1] + np.sqrt(1 - rho**2) * np.random.normal()
+        return data
+
+    def test_basic_plot(self, correlated_data):
+        """Test basic autocorrelation plot."""
+        ax = plot_autocorrelation(correlated_data)
+
+        assert ax is not None
+        assert len(ax.lines) >= 1
+        plt.close()
+
+    def test_custom_max_lag(self, correlated_data):
+        """Test with custom max_lag."""
+        ax = plot_autocorrelation(correlated_data, max_lag=50)
+
+        assert ax is not None
+        assert ax.get_xlim()[1] <= 55  # Should respect max_lag
+        plt.close()
+
+    def test_show_tau(self, correlated_data):
+        """Test tau annotation is shown."""
+        ax = plot_autocorrelation(correlated_data, show_tau=True)
+
+        # Check legend contains tau
+        legend = ax.get_legend()
+        legend_texts = [t.get_text() for t in legend.texts]
+        assert any('τ' in t or 'tau' in t.lower() for t in legend_texts)
+        plt.close()
+
+    def test_no_tau(self, correlated_data):
+        """Test without tau annotation."""
+        ax = plot_autocorrelation(correlated_data, show_tau=False)
+
+        assert ax is not None
+        plt.close()
+
+    def test_confidence_interval(self, correlated_data):
+        """Test confidence interval is shown."""
+        ax = plot_autocorrelation(correlated_data, show_confidence=True)
+
+        # Should have CI lines
+        assert ax is not None
+        plt.close()
+
+    def test_custom_axes(self, correlated_data):
+        """Test with custom axes."""
+        fig, ax = plt.subplots()
+        returned_ax = plot_autocorrelation(correlated_data, ax=ax)
+
+        assert returned_ax is ax
+        plt.close(fig)
+
+    def test_save_figure(self, correlated_data, output_dir):
+        """Test saving figure."""
+        save_path = output_dir / "acf.png"
+        plot_autocorrelation(correlated_data, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()
+
+    def test_zero_variance_raises(self):
+        """Test error for constant data."""
+        constant_data = np.ones(100)
+
+        with pytest.raises(ValueError, match="zero variance"):
+            plot_autocorrelation(constant_data)
+
+
+# ============================================================================
+# Tests for plot_blocking_analysis
+# ============================================================================
+
+class TestPlotBlockingAnalysis:
+    """Tests for plot_blocking_analysis function."""
+
+    @pytest.fixture
+    def correlated_data(self):
+        """Create correlated time series data."""
+        np.random.seed(42)
+        n = 2000
+        rho = 0.9
+        data = np.zeros(n)
+        data[0] = np.random.normal()
+        for i in range(1, n):
+            data[i] = rho * data[i-1] + np.sqrt(1 - rho**2) * np.random.normal()
+        return data
+
+    def test_basic_plot(self, correlated_data):
+        """Test basic blocking analysis plot."""
+        ax = plot_blocking_analysis(correlated_data)
+
+        assert ax is not None
+        plt.close()
+
+    def test_show_plateau(self, correlated_data):
+        """Test plateau is shown."""
+        ax = plot_blocking_analysis(correlated_data, show_plateau=True)
+
+        legend = ax.get_legend()
+        legend_texts = [t.get_text() for t in legend.texts]
+        assert any('Plateau' in t for t in legend_texts)
+        plt.close()
+
+    def test_no_plateau(self, correlated_data):
+        """Test without plateau."""
+        ax = plot_blocking_analysis(correlated_data, show_plateau=False)
+
+        assert ax is not None
+        plt.close()
+
+    def test_custom_max_block_size(self, correlated_data):
+        """Test custom max block size."""
+        ax = plot_blocking_analysis(correlated_data, max_block_size=100)
+
+        assert ax is not None
+        plt.close()
+
+    def test_custom_axes(self, correlated_data):
+        """Test with custom axes."""
+        fig, ax = plt.subplots()
+        returned_ax = plot_blocking_analysis(correlated_data, ax=ax)
+
+        assert returned_ax is ax
+        plt.close(fig)
+
+    def test_save_figure(self, correlated_data, output_dir):
+        """Test saving figure."""
+        save_path = output_dir / "blocking.png"
+        plot_blocking_analysis(correlated_data, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()
+
+    def test_log_scale(self, correlated_data):
+        """Test log-log scale is used."""
+        ax = plot_blocking_analysis(correlated_data)
+
+        assert ax.get_xscale() == 'log'
+        assert ax.get_yscale() == 'log'
+        plt.close()
+
+
+# ============================================================================
+# Tests for plot_correlation_time_comparison
+# ============================================================================
+
+class TestPlotCorrelationTimeComparison:
+    """Tests for plot_correlation_time_comparison function."""
+
+    @pytest.fixture
+    def correlated_data(self):
+        """Create correlated data."""
+        np.random.seed(42)
+        n = 1000
+        rho = 0.8
+        data = np.zeros(n)
+        data[0] = np.random.normal()
+        for i in range(1, n):
+            data[i] = rho * data[i-1] + np.sqrt(1 - rho**2) * np.random.normal()
+        return data
+
+    def test_basic_comparison(self, correlated_data):
+        """Test basic comparison plot."""
+        fig, axes = plot_correlation_time_comparison(correlated_data)
+
+        assert fig is not None
+        assert len(axes) == 2
+        plt.close(fig)
+
+    def test_custom_figsize(self, correlated_data):
+        """Test custom figure size."""
+        fig, axes = plot_correlation_time_comparison(
+            correlated_data,
+            figsize=(15, 6)
+        )
+
+        assert fig.get_figwidth() == 15
+        assert fig.get_figheight() == 6
+        plt.close(fig)
+
+    def test_save_figure(self, correlated_data, output_dir):
+        """Test saving figure."""
+        save_path = output_dir / "comparison.png"
+        fig, axes = plot_correlation_time_comparison(
+            correlated_data,
+            save=str(save_path)
+        )
+        plt.close(fig)
+
+        assert save_path.exists()
+
+
+# ============================================================================
+# Tests for plot_equilibration_check
+# ============================================================================
+
+class TestPlotEquilibrationCheck:
+    """Tests for plot_equilibration_check function."""
+
+    @pytest.fixture
+    def equilibrating_data(self):
+        """Create data with initial equilibration period."""
+        np.random.seed(42)
+        n = 1000
+        # Initial transient followed by equilibrium
+        transient = np.linspace(0, -1.5, 200) + np.random.normal(0, 0.1, 200)
+        equilibrium = np.random.normal(-1.5, 0.1, 800)
+        return np.concatenate([transient, equilibrium])
+
+    def test_basic_plot(self, equilibrating_data):
+        """Test basic equilibration check plot."""
+        ax = plot_equilibration_check(equilibrating_data)
+
+        assert ax is not None
+        plt.close()
+
+    def test_custom_window(self, equilibrating_data):
+        """Test custom window size."""
+        ax = plot_equilibration_check(equilibrating_data, window_size=50)
+
+        assert ax is not None
+        plt.close()
+
+    def test_custom_name(self, equilibrating_data):
+        """Test custom observable name."""
+        ax = plot_equilibration_check(
+            equilibrating_data,
+            observable_name='Energy'
+        )
+
+        assert 'Energy' in ax.get_ylabel()
+        plt.close()
+
+    def test_save_figure(self, equilibrating_data, output_dir):
+        """Test saving figure."""
+        save_path = output_dir / "equilibration.png"
+        plot_equilibration_check(equilibrating_data, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()
+
+
+# ============================================================================
+# Tests for plot_bootstrap_distribution
+# ============================================================================
+
+class TestPlotBootstrapDistribution:
+    """Tests for plot_bootstrap_distribution function."""
+
+    @pytest.fixture
+    def sample_data(self):
+        """Create sample data for bootstrap."""
+        np.random.seed(42)
+        return np.random.normal(10, 2, 500)
+
+    def test_basic_plot(self, sample_data):
+        """Test basic bootstrap distribution plot."""
+        ax = plot_bootstrap_distribution(sample_data)
+
+        assert ax is not None
+        plt.close()
+
+    def test_mean_statistic(self, sample_data):
+        """Test mean statistic."""
+        ax = plot_bootstrap_distribution(sample_data, statistic='mean')
+
+        assert 'Mean' in ax.get_title()
+        plt.close()
+
+    def test_std_statistic(self, sample_data):
+        """Test std statistic."""
+        ax = plot_bootstrap_distribution(sample_data, statistic='std')
+
+        assert 'Std' in ax.get_title()
+        plt.close()
+
+    def test_show_ci(self, sample_data):
+        """Test confidence interval is shown."""
+        ax = plot_bootstrap_distribution(sample_data, show_ci=True)
+
+        legend = ax.get_legend()
+        legend_texts = [t.get_text() for t in legend.texts]
+        assert any('95%' in t or 'CI' in t for t in legend_texts)
+        plt.close()
+
+    def test_custom_n_bootstrap(self, sample_data):
+        """Test custom number of bootstrap samples."""
+        ax = plot_bootstrap_distribution(sample_data, n_bootstrap=500)
+
+        assert '500' in ax.get_title()
+        plt.close()
+
+    def test_invalid_statistic_raises(self, sample_data):
+        """Test error for invalid statistic."""
+        with pytest.raises(ValueError, match="Unknown statistic"):
+            plot_bootstrap_distribution(sample_data, statistic='invalid')
+
+    def test_save_figure(self, sample_data, output_dir):
+        """Test saving figure."""
+        save_path = output_dir / "bootstrap.png"
+        plot_bootstrap_distribution(sample_data, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()
+
+
+# ============================================================================
+# Tests for plot_finite_size_scaling
+# ============================================================================
+
+class TestPlotFiniteSizeScaling:
+    """Tests for plot_finite_size_scaling function."""
+
+    @pytest.fixture
+    def scaling_data(self):
+        """Create scaling data."""
+        sizes = [8, 16, 32, 64]
+        # chi ~ L^(gamma/nu) ~ L^1.75 for 2D Ising
+        observables = {L: 0.5 * L ** 1.75 for L in sizes}
+        errors = {L: 0.05 * L ** 1.75 for L in sizes}
+        return sizes, observables, errors
+
+    def test_basic_plot(self, scaling_data):
+        """Test basic finite-size scaling plot."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(sizes, observables)
+
+        assert ax is not None
+        plt.close()
+
+    def test_with_errors(self, scaling_data):
+        """Test with error bars."""
+        sizes, observables, errors = scaling_data
+        ax = plot_finite_size_scaling(sizes, observables, errors=errors)
+
+        assert ax is not None
+        plt.close()
+
+    def test_with_exponent(self, scaling_data):
+        """Test with theoretical exponent."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(
+            sizes, observables,
+            exponent=1.75
+        )
+
+        legend = ax.get_legend()
+        legend_texts = [t.get_text() for t in legend.texts]
+        assert any('Theory' in t for t in legend_texts)
+        plt.close()
+
+    def test_log_scale(self, scaling_data):
+        """Test log-log scale."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(sizes, observables, log_scale=True)
+
+        assert ax.get_xscale() == 'log'
+        assert ax.get_yscale() == 'log'
+        plt.close()
+
+    def test_linear_scale(self, scaling_data):
+        """Test linear scale."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(sizes, observables, log_scale=False)
+
+        assert ax.get_xscale() == 'linear'
+        assert ax.get_yscale() == 'linear'
+        plt.close()
+
+    def test_show_fit(self, scaling_data):
+        """Test power law fit is shown."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(sizes, observables, show_fit=True)
+
+        legend = ax.get_legend()
+        legend_texts = [t.get_text() for t in legend.texts]
+        assert any('Fit' in t for t in legend_texts)
+        plt.close()
+
+    def test_custom_observable_name(self, scaling_data):
+        """Test custom observable name."""
+        sizes, observables, _ = scaling_data
+        ax = plot_finite_size_scaling(
+            sizes, observables,
+            observable_name='Susceptibility'
+        )
+
+        assert 'Susceptibility' in ax.get_ylabel()
+        plt.close()
+
+    def test_save_figure(self, scaling_data, output_dir):
+        """Test saving figure."""
+        sizes, observables, _ = scaling_data
+        save_path = output_dir / "fss.png"
+        plot_finite_size_scaling(sizes, observables, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()

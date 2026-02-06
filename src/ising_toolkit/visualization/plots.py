@@ -1206,3 +1206,597 @@ def plot_spin_configuration_3d_slices(
         plt.savefig(save, dpi=150, bbox_inches='tight')
 
     return fig, axes
+
+
+# ============================================================================
+# Analysis-specific plots
+# ============================================================================
+
+def plot_autocorrelation(
+    data: np.ndarray,
+    max_lag: Optional[int] = None,
+    ax=None,
+    show_tau: bool = True,
+    show_confidence: bool = True,
+    save: Optional[str] = None,
+    **kwargs,
+):
+    """Plot autocorrelation function with integrated time annotation.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series data.
+    max_lag : int, optional
+        Maximum lag to plot. Default is min(len(data)//4, 500).
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    show_tau : bool, optional
+        Show integrated autocorrelation time annotation. Default is True.
+    show_confidence : bool, optional
+        Show 95% confidence interval. Default is True.
+    save : str, optional
+        Path to save figure.
+    **kwargs
+        Additional arguments passed to plot.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+
+    Examples
+    --------
+    >>> energy = sampler.run(10000)['energy']
+    >>> ax = plot_autocorrelation(energy, max_lag=100)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    n = len(data)
+    if max_lag is None:
+        max_lag = min(n // 4, 500)
+
+    # Compute autocorrelation function
+    mean = np.mean(data)
+    var = np.var(data)
+
+    if var == 0:
+        raise ValueError("Data has zero variance, cannot compute autocorrelation")
+
+    acf = np.zeros(max_lag + 1)
+    acf[0] = 1.0
+
+    for lag in range(1, max_lag + 1):
+        cov = np.mean((data[:-lag] - mean) * (data[lag:] - mean))
+        acf[lag] = cov / var
+
+    lags = np.arange(max_lag + 1)
+
+    # Plot ACF
+    ax.plot(lags, acf, 'b-', linewidth=1.5, label='ACF', **kwargs)
+    ax.axhline(0, color='gray', linestyle='-', alpha=0.5)
+
+    # Confidence interval (95% for white noise)
+    if show_confidence:
+        ci = 1.96 / np.sqrt(n)
+        ax.axhline(ci, color='red', linestyle='--', alpha=0.5, label=f'95% CI (±{ci:.3f})')
+        ax.axhline(-ci, color='red', linestyle='--', alpha=0.5)
+        ax.fill_between(lags, -ci, ci, color='red', alpha=0.1)
+
+    # Compute and show integrated autocorrelation time
+    if show_tau:
+        tau_int = _compute_tau_int(acf)
+        ax.axvline(tau_int, color='green', linestyle=':', linewidth=2,
+                   label=f'τ_int ≈ {tau_int:.1f}')
+
+        # Shade the integration region
+        integration_mask = lags <= tau_int * 6  # Show ~6τ
+        ax.fill_between(
+            lags[integration_mask],
+            0,
+            acf[integration_mask],
+            alpha=0.2,
+            color='blue'
+        )
+
+    ax.set_xlabel('Lag')
+    ax.set_ylabel('Autocorrelation C(t)')
+    ax.set_title('Autocorrelation Function')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    # Set reasonable y-limits
+    ax.set_ylim(-0.2, 1.1)
+    ax.set_xlim(0, max_lag)
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def _compute_tau_int(acf: np.ndarray, c: float = 5.0) -> float:
+    """Compute integrated autocorrelation time using Sokal's windowing.
+
+    Parameters
+    ----------
+    acf : np.ndarray
+        Autocorrelation function values.
+    c : float
+        Window coefficient (typically 4-6).
+
+    Returns
+    -------
+    float
+        Integrated autocorrelation time.
+    """
+    tau_int = 0.5  # Start with C(0)/2 = 0.5
+    max_lag = len(acf) - 1
+
+    for t in range(1, max_lag + 1):
+        if acf[t] <= 0:
+            break
+        tau_int += acf[t]
+        # Sokal's automatic windowing
+        if t >= c * tau_int:
+            break
+
+    return tau_int
+
+
+def plot_blocking_analysis(
+    data: np.ndarray,
+    ax=None,
+    show_plateau: bool = True,
+    max_block_size: Optional[int] = None,
+    save: Optional[str] = None,
+    **kwargs,
+):
+    """Plot standard error vs block size from blocking analysis.
+
+    The blocking method transforms correlated data into independent blocks.
+    The standard error plateaus when the block size exceeds the correlation
+    length.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series data.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    show_plateau : bool, optional
+        Estimate and show plateau value. Default is True.
+    max_block_size : int, optional
+        Maximum block size to analyze. Default is len(data)//4.
+    save : str, optional
+        Path to save figure.
+    **kwargs
+        Additional arguments passed to plot.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+
+    Examples
+    --------
+    >>> energy = sampler.run(10000)['energy']
+    >>> ax = plot_blocking_analysis(energy)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    n = len(data)
+    if max_block_size is None:
+        max_block_size = n // 4
+
+    # Compute blocked standard errors
+    block_sizes = []
+    std_errors = []
+
+    # Use logarithmically spaced block sizes for efficiency
+    sizes = np.unique(np.logspace(0, np.log10(max_block_size), 50).astype(int))
+
+    for block_size in sizes:
+        if block_size > max_block_size:
+            break
+
+        n_blocks = n // block_size
+        if n_blocks < 2:
+            break
+
+        # Compute block means
+        blocked_data = data[:n_blocks * block_size].reshape(n_blocks, block_size)
+        block_means = np.mean(blocked_data, axis=1)
+
+        # Standard error of block means
+        se = np.std(block_means, ddof=1) / np.sqrt(n_blocks)
+
+        block_sizes.append(block_size)
+        std_errors.append(se)
+
+    block_sizes = np.array(block_sizes)
+    std_errors = np.array(std_errors)
+
+    # Plot
+    ax.loglog(block_sizes, std_errors, 'bo-', markersize=4, linewidth=1, **kwargs)
+
+    # Naive standard error (no blocking)
+    naive_se = np.std(data, ddof=1) / np.sqrt(n)
+    ax.axhline(naive_se, color='gray', linestyle=':', alpha=0.7,
+               label=f'Naive σ/√n = {naive_se:.4f}')
+
+    # Estimate and show plateau
+    if show_plateau and len(std_errors) > 5:
+        # Use the last few points as plateau estimate
+        plateau_estimate = np.mean(std_errors[-5:])
+        ax.axhline(plateau_estimate, color='red', linestyle='--',
+                   label=f'Plateau ≈ {plateau_estimate:.4f}')
+
+        # Estimate effective sample size
+        if naive_se > 0:
+            tau_eff = (plateau_estimate / naive_se) ** 2
+            ax.text(
+                0.95, 0.95,
+                f'τ_eff ≈ {tau_eff:.1f}',
+                transform=ax.transAxes,
+                ha='right', va='top',
+                fontsize=10,
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            )
+
+    ax.set_xlabel('Block size')
+    ax.set_ylabel('Standard error')
+    ax.set_title('Blocking Analysis')
+    ax.legend(loc='lower right')
+    ax.grid(True, alpha=0.3, which='both')
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def plot_correlation_time_comparison(
+    data: np.ndarray,
+    ax=None,
+    figsize: Tuple[float, float] = (12, 5),
+    save: Optional[str] = None,
+):
+    """Plot autocorrelation and blocking analysis side by side.
+
+    Useful for comparing different methods of estimating correlation time.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series data.
+    ax : tuple of axes, optional
+        Tuple of (ax1, ax2). If None, creates new figure.
+    figsize : tuple, optional
+        Figure size. Default is (12, 5).
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object.
+    axes : tuple
+        Tuple of axes (ax_acf, ax_blocking).
+
+    Examples
+    --------
+    >>> fig, axes = plot_correlation_time_comparison(energy_data)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    else:
+        ax1, ax2 = ax
+        fig = ax1.figure
+
+    plot_autocorrelation(data, ax=ax1)
+    plot_blocking_analysis(data, ax=ax2)
+
+    plt.tight_layout()
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return fig, (ax1, ax2)
+
+
+def plot_equilibration_check(
+    data: np.ndarray,
+    observable_name: str = 'Observable',
+    window_size: Optional[int] = None,
+    ax=None,
+    save: Optional[str] = None,
+):
+    """Plot time series with running mean to check equilibration.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time series data.
+    observable_name : str, optional
+        Name for y-axis label.
+    window_size : int, optional
+        Window size for running mean. Default is len(data)//20.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on.
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+    n = len(data)
+    if window_size is None:
+        window_size = max(n // 20, 10)
+
+    steps = np.arange(n)
+
+    # Raw data
+    ax.plot(steps, data, 'b-', linewidth=0.3, alpha=0.5, label='Raw data')
+
+    # Running mean
+    running_mean = np.convolve(data, np.ones(window_size)/window_size, mode='valid')
+    running_steps = steps[window_size//2:window_size//2 + len(running_mean)]
+    ax.plot(running_steps, running_mean, 'r-', linewidth=2,
+            label=f'Running mean (window={window_size})')
+
+    # Overall mean (after equilibration estimate)
+    # Use last 80% as equilibrated
+    equilibrated = data[n//5:]
+    mean_eq = np.mean(equilibrated)
+    std_eq = np.std(equilibrated)
+
+    ax.axhline(mean_eq, color='green', linestyle='--',
+               label=f'Mean (last 80%) = {mean_eq:.4f}')
+    ax.axhspan(mean_eq - std_eq, mean_eq + std_eq, alpha=0.1, color='green')
+
+    # Mark suggested equilibration cutoff
+    ax.axvline(n//5, color='orange', linestyle=':', linewidth=2,
+               label='Suggested equilibration')
+
+    ax.set_xlabel('Monte Carlo step')
+    ax.set_ylabel(observable_name)
+    ax.set_title('Equilibration Check')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def plot_bootstrap_distribution(
+    data: np.ndarray,
+    statistic: str = 'mean',
+    n_bootstrap: int = 1000,
+    ax=None,
+    show_ci: bool = True,
+    save: Optional[str] = None,
+):
+    """Plot bootstrap distribution of a statistic.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Original data.
+    statistic : str, optional
+        Statistic to bootstrap ('mean', 'std', 'var'). Default is 'mean'.
+    n_bootstrap : int, optional
+        Number of bootstrap samples. Default is 1000.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on.
+    show_ci : bool, optional
+        Show 95% confidence interval. Default is True.
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    n = len(data)
+
+    # Define statistic function
+    stat_funcs = {
+        'mean': np.mean,
+        'std': np.std,
+        'var': np.var,
+    }
+
+    if statistic not in stat_funcs:
+        raise ValueError(f"Unknown statistic: {statistic}. Use one of {list(stat_funcs.keys())}")
+
+    stat_func = stat_funcs[statistic]
+
+    # Bootstrap
+    np.random.seed(42)  # For reproducibility
+    bootstrap_stats = np.zeros(n_bootstrap)
+
+    for i in range(n_bootstrap):
+        sample = np.random.choice(data, size=n, replace=True)
+        bootstrap_stats[i] = stat_func(sample)
+
+    # Plot histogram
+    ax.hist(bootstrap_stats, bins=50, density=True, alpha=0.7,
+            edgecolor='black', linewidth=0.5)
+
+    # Original statistic
+    original_stat = stat_func(data)
+    ax.axvline(original_stat, color='red', linestyle='--', linewidth=2,
+               label=f'Original {statistic} = {original_stat:.4f}')
+
+    # Confidence interval
+    if show_ci:
+        ci_low = np.percentile(bootstrap_stats, 2.5)
+        ci_high = np.percentile(bootstrap_stats, 97.5)
+        ax.axvline(ci_low, color='green', linestyle=':', linewidth=2)
+        ax.axvline(ci_high, color='green', linestyle=':', linewidth=2,
+                   label=f'95% CI: [{ci_low:.4f}, {ci_high:.4f}]')
+        ax.axvspan(ci_low, ci_high, alpha=0.2, color='green')
+
+    ax.set_xlabel(f'{statistic.capitalize()}')
+    ax.set_ylabel('Probability density')
+    ax.set_title(f'Bootstrap Distribution of {statistic.capitalize()} (n={n_bootstrap})')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def plot_finite_size_scaling(
+    sizes: List[int],
+    observables: Dict[int, float],
+    errors: Optional[Dict[int, float]] = None,
+    exponent: Optional[float] = None,
+    observable_name: str = 'Observable',
+    ax=None,
+    log_scale: bool = True,
+    show_fit: bool = True,
+    save: Optional[str] = None,
+):
+    """Plot observable vs system size for finite-size scaling.
+
+    Parameters
+    ----------
+    sizes : list of int
+        System sizes.
+    observables : dict
+        Dictionary mapping size to observable value at Tc.
+    errors : dict, optional
+        Dictionary mapping size to error.
+    exponent : float, optional
+        Expected scaling exponent. If given, shows theoretical line.
+    observable_name : str, optional
+        Name for y-axis label.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on.
+    log_scale : bool, optional
+        Use log-log scale. Default is True.
+    show_fit : bool, optional
+        Show power law fit. Default is True.
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+
+    Examples
+    --------
+    >>> sizes = [8, 16, 32, 64]
+    >>> chi_max = {8: 10.2, 16: 25.1, 32: 61.5, 64: 148.3}
+    >>> plot_finite_size_scaling(sizes, chi_max, exponent=1.75)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+    sizes = np.array(sizes)
+    obs_values = np.array([observables[L] for L in sizes])
+
+    # Get errors if available
+    if errors is not None:
+        err_values = np.array([errors.get(L, 0) for L in sizes])
+        has_errors = True
+    else:
+        err_values = None
+        has_errors = False
+
+    # Plot data
+    if has_errors and np.any(err_values > 0):
+        ax.errorbar(sizes, obs_values, yerr=err_values, fmt='o',
+                    markersize=8, capsize=4, label='Data')
+    else:
+        ax.plot(sizes, obs_values, 'o', markersize=8, label='Data')
+
+    # Power law fit
+    if show_fit and len(sizes) >= 3:
+        log_L = np.log(sizes)
+        log_obs = np.log(obs_values)
+
+        # Linear fit in log space
+        coeffs = np.polyfit(log_L, log_obs, 1)
+        fitted_exponent = coeffs[0]
+        amplitude = np.exp(coeffs[1])
+
+        # Plot fit line
+        L_fit = np.linspace(sizes.min() * 0.8, sizes.max() * 1.2, 100)
+        obs_fit = amplitude * L_fit ** fitted_exponent
+
+        ax.plot(L_fit, obs_fit, 'r--', linewidth=2,
+                label=f'Fit: L^{fitted_exponent:.3f}')
+
+    # Theoretical exponent line
+    if exponent is not None:
+        # Scale to pass through first data point
+        amplitude_theory = obs_values[0] / (sizes[0] ** exponent)
+        L_theory = np.linspace(sizes.min() * 0.8, sizes.max() * 1.2, 100)
+        obs_theory = amplitude_theory * L_theory ** exponent
+
+        ax.plot(L_theory, obs_theory, 'g:', linewidth=2,
+                label=f'Theory: L^{exponent:.3f}')
+
+    if log_scale:
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+
+    ax.set_xlabel('System size L')
+    ax.set_ylabel(observable_name)
+    ax.set_title('Finite-Size Scaling')
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3, which='both')
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax

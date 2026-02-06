@@ -53,6 +53,13 @@ from ising_toolkit.visualization.plots import (
     # Histogram and time series
     plot_energy_histogram,
     plot_time_series,
+    # Analysis-specific plots
+    plot_autocorrelation,
+    plot_blocking_analysis,
+    plot_correlation_time_comparison,
+    plot_equilibration_check,
+    plot_bootstrap_distribution,
+    plot_finite_size_scaling,
 )
 
 from ising_toolkit.visualization.animation import (
@@ -112,6 +119,13 @@ __all__ = [
     # Histogram and time series
     "plot_energy_histogram",
     "plot_time_series",
+    # Analysis-specific plots
+    "plot_autocorrelation",
+    "plot_blocking_analysis",
+    "plot_correlation_time_comparison",
+    "plot_equilibration_check",
+    "plot_bootstrap_distribution",
+    "plot_finite_size_scaling",
     # Animation
     "create_spin_animation",
     "create_observable_animation",
