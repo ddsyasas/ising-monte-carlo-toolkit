@@ -55,6 +55,13 @@ from ising_toolkit.visualization.plots import (
     plot_time_series,
 )
 
+from ising_toolkit.visualization.animation import (
+    create_spin_animation,
+    create_observable_animation,
+    create_temperature_sweep_animation,
+    create_domain_growth_animation,
+)
+
 __all__ = [
     # Style dictionaries
     "STYLE_PUBLICATION",
@@ -105,4 +112,9 @@ __all__ = [
     # Histogram and time series
     "plot_energy_histogram",
     "plot_time_series",
+    # Animation
+    "create_spin_animation",
+    "create_observable_animation",
+    "create_temperature_sweep_animation",
+    "create_domain_growth_animation",
 ]
