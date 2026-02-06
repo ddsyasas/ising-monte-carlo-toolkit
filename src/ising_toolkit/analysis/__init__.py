@@ -13,6 +13,11 @@ from ising_toolkit.analysis.statistics import (
     bootstrap_mean_error,
     jackknife_error,
     blocking_error,
+    autocorrelation_function,
+    autocorrelation_function_fft,
+    integrated_autocorrelation_time,
+    effective_sample_size,
+    generate_ar1,
 )
 
 __all__ = [
@@ -28,4 +33,10 @@ __all__ = [
     "bootstrap_mean_error",
     "jackknife_error",
     "blocking_error",
+    # Autocorrelation analysis
+    "autocorrelation_function",
+    "autocorrelation_function_fft",
+    "integrated_autocorrelation_time",
+    "effective_sample_size",
+    "generate_ar1",
 ]

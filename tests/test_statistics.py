@@ -9,6 +9,11 @@ from ising_toolkit.analysis import (
     bootstrap_mean_error,
     jackknife_error,
     blocking_error,
+    autocorrelation_function,
+    autocorrelation_function_fft,
+    integrated_autocorrelation_time,
+    effective_sample_size,
+    generate_ar1,
 )
 
 
@@ -483,3 +488,396 @@ class TestStatisticsIntegration:
         median, error_med = bootstrap_error(data, np.median, n_samples=1000, seed=42)
         assert median > 0
         assert error_med > 0
+
+
+class TestGenerateAR1:
+    """Tests for AR(1) process generator."""
+
+    def test_generate_ar1_length(self):
+        """Test AR(1) generates correct length."""
+        data = generate_ar1(100, alpha=0.5, seed=42)
+        assert len(data) == 100
+
+    def test_generate_ar1_reproducible(self):
+        """Test AR(1) is reproducible with seed."""
+        data1 = generate_ar1(100, alpha=0.9, seed=42)
+        data2 = generate_ar1(100, alpha=0.9, seed=42)
+        np.testing.assert_array_equal(data1, data2)
+
+    def test_generate_ar1_unit_variance(self):
+        """Test AR(1) has approximately unit variance."""
+        data = generate_ar1(10000, alpha=0.9, seed=42)
+        assert np.var(data) == pytest.approx(1.0, rel=0.1)
+
+    def test_generate_ar1_zero_mean(self):
+        """Test AR(1) has approximately zero mean."""
+        data = generate_ar1(10000, alpha=0.5, seed=42)
+        assert np.mean(data) == pytest.approx(0.0, abs=0.1)
+
+    def test_generate_ar1_invalid_alpha(self):
+        """Test AR(1) raises for invalid alpha."""
+        with pytest.raises(ValueError, match="alpha"):
+            generate_ar1(100, alpha=1.0)
+
+        with pytest.raises(ValueError, match="alpha"):
+            generate_ar1(100, alpha=-1.0)
+
+        with pytest.raises(ValueError, match="alpha"):
+            generate_ar1(100, alpha=1.5)
+
+    def test_generate_ar1_different_alphas(self):
+        """Test higher alpha gives more correlated data."""
+        data_low = generate_ar1(1000, alpha=0.1, seed=42)
+        data_high = generate_ar1(1000, alpha=0.95, seed=42)
+
+        # Compute lag-1 autocorrelation
+        acf_low = np.corrcoef(data_low[:-1], data_low[1:])[0, 1]
+        acf_high = np.corrcoef(data_high[:-1], data_high[1:])[0, 1]
+
+        # Higher alpha should give higher lag-1 correlation
+        assert acf_high > acf_low
+
+
+class TestAutocorrelationFunction:
+    """Tests for autocorrelation_function."""
+
+    def test_acf_at_zero_is_one(self):
+        """Test A(0) = 1 always."""
+        data = np.random.randn(100)
+        acf = autocorrelation_function(data, max_lag=10)
+        assert acf[0] == 1.0
+
+    def test_acf_length(self):
+        """Test ACF has correct length."""
+        data = np.random.randn(100)
+        acf = autocorrelation_function(data, max_lag=20)
+        assert len(acf) == 21  # 0 to 20 inclusive
+
+    def test_acf_uncorrelated_near_zero(self):
+        """Test ACF is near zero for uncorrelated data."""
+        np.random.seed(42)
+        data = np.random.randn(5000)
+        acf = autocorrelation_function(data, max_lag=50)
+
+        # For uncorrelated data, ACF(t>0) should be near 0
+        # With 5000 samples, statistical noise is ~1/sqrt(5000) ≈ 0.014
+        assert np.all(np.abs(acf[1:]) < 0.1)
+
+    def test_acf_ar1_exponential_decay(self):
+        """Test ACF of AR(1) decays exponentially."""
+        tau = 10.0
+        alpha = np.exp(-1 / tau)
+        data = generate_ar1(50000, alpha, seed=42)
+
+        acf = autocorrelation_function(data, max_lag=50)
+
+        # For AR(1), A(t) = alpha^t
+        # Only check early lags where signal-to-noise is good
+        for t in range(1, 15):
+            expected = alpha**t
+            assert acf[t] == pytest.approx(expected, rel=0.15)
+
+    def test_acf_ar1_known_values(self):
+        """Test ACF matches theoretical values for AR(1)."""
+        alpha = 0.8
+        data = generate_ar1(20000, alpha, seed=42)
+        acf = autocorrelation_function(data, max_lag=20)
+
+        # Check specific lags
+        assert acf[1] == pytest.approx(alpha, rel=0.1)  # α
+        assert acf[2] == pytest.approx(alpha**2, rel=0.1)  # α²
+        assert acf[5] == pytest.approx(alpha**5, rel=0.15)  # α⁵
+
+    def test_acf_symmetric_data(self):
+        """Test ACF is same for data and -data."""
+        np.random.seed(42)
+        data = np.random.randn(500)
+
+        acf_pos = autocorrelation_function(data, max_lag=20)
+        acf_neg = autocorrelation_function(-data, max_lag=20)
+
+        np.testing.assert_array_almost_equal(acf_pos, acf_neg)
+
+    def test_acf_constant_data(self):
+        """Test ACF for constant data."""
+        data = np.ones(100) * 5.0
+        acf = autocorrelation_function(data, max_lag=10)
+
+        # A(0) = 1, A(t>0) = 0 for constant data
+        assert acf[0] == 1.0
+        assert np.all(acf[1:] == 0.0)
+
+    def test_acf_single_point(self):
+        """Test ACF for single data point."""
+        data = np.array([3.14])
+        acf = autocorrelation_function(data)
+        assert len(acf) == 1
+        assert acf[0] == 1.0
+
+    def test_acf_empty_raises(self):
+        """Test ACF raises for empty data."""
+        with pytest.raises(ValueError, match="empty"):
+            autocorrelation_function(np.array([]))
+
+    def test_acf_max_lag_respected(self):
+        """Test max_lag parameter is respected."""
+        data = np.random.randn(1000)
+        acf = autocorrelation_function(data, max_lag=5)
+        assert len(acf) == 6
+
+    def test_acf_default_max_lag(self):
+        """Test default max_lag is n//4."""
+        data = np.random.randn(100)
+        acf = autocorrelation_function(data)
+        assert len(acf) == 26  # 0 to 25
+
+
+class TestAutocorrelationFunctionFFT:
+    """Tests for FFT-based autocorrelation function."""
+
+    def test_acf_fft_matches_direct(self):
+        """Test FFT method matches direct method."""
+        np.random.seed(42)
+        data = np.random.randn(500)
+
+        acf_direct = autocorrelation_function(data, max_lag=50)
+        acf_fft = autocorrelation_function_fft(data, max_lag=50)
+
+        np.testing.assert_array_almost_equal(acf_direct, acf_fft, decimal=5)
+
+    def test_acf_fft_ar1(self):
+        """Test FFT ACF for AR(1) process."""
+        alpha = 0.7
+        data = generate_ar1(20000, alpha, seed=42)
+
+        acf = autocorrelation_function_fft(data, max_lag=30)
+
+        # Check exponential decay for early lags
+        for t in range(1, 10):
+            expected = alpha**t
+            assert acf[t] == pytest.approx(expected, rel=0.15)
+
+    def test_acf_fft_empty_raises(self):
+        """Test FFT ACF raises for empty data."""
+        with pytest.raises(ValueError, match="empty"):
+            autocorrelation_function_fft(np.array([]))
+
+    def test_acf_fft_single_point(self):
+        """Test FFT ACF for single point."""
+        data = np.array([1.0])
+        acf = autocorrelation_function_fft(data)
+        assert len(acf) == 1
+        assert acf[0] == 1.0
+
+
+class TestIntegratedAutocorrelationTime:
+    """Tests for integrated autocorrelation time."""
+
+    def test_tau_int_uncorrelated(self):
+        """Test τ_int ≈ 0.5 for uncorrelated data."""
+        np.random.seed(42)
+        data = np.random.randn(10000)
+
+        tau = integrated_autocorrelation_time(data)
+
+        # For uncorrelated data, τ_int = 0.5
+        assert tau == pytest.approx(0.5, rel=0.2)
+
+    def test_tau_int_ar1_formula(self):
+        """Test τ_int matches theoretical formula for AR(1)."""
+        # For AR(1) with parameter α:
+        # τ_int = (1 + α) / (2(1 - α))
+
+        for tau_target in [5.0, 10.0, 20.0]:
+            alpha = np.exp(-1 / tau_target)
+            data = generate_ar1(50000, alpha, seed=42)
+
+            tau_est = integrated_autocorrelation_time(data)
+
+            # Theoretical τ_int for AR(1)
+            tau_theory = (1 + alpha) / (2 * (1 - alpha))
+
+            # Should match within 20%
+            assert tau_est == pytest.approx(tau_theory, rel=0.25)
+
+    def test_tau_int_increases_with_correlation(self):
+        """Test τ_int increases with correlation strength."""
+        taus = []
+        for alpha in [0.5, 0.8, 0.95]:
+            data = generate_ar1(10000, alpha, seed=42)
+            tau = integrated_autocorrelation_time(data)
+            taus.append(tau)
+
+        # τ_int should increase with alpha
+        assert taus[0] < taus[1] < taus[2]
+
+    def test_tau_int_positive(self):
+        """Test τ_int is always positive."""
+        np.random.seed(42)
+        data = np.random.randn(1000)
+        tau = integrated_autocorrelation_time(data)
+        assert tau > 0
+
+    def test_tau_int_at_least_half(self):
+        """Test τ_int >= 0.5."""
+        np.random.seed(42)
+        data = np.random.randn(1000)
+        tau = integrated_autocorrelation_time(data)
+        assert tau >= 0.5
+
+    def test_tau_int_empty_raises(self):
+        """Test τ_int raises for empty data."""
+        with pytest.raises(ValueError, match="empty"):
+            integrated_autocorrelation_time(np.array([]))
+
+    def test_tau_int_single_point(self):
+        """Test τ_int for single point."""
+        tau = integrated_autocorrelation_time(np.array([1.0]))
+        assert tau == 0.5
+
+    def test_tau_int_constant_data(self):
+        """Test τ_int handles constant data."""
+        data = np.ones(100)
+        tau = integrated_autocorrelation_time(data)
+        # Constant data has zero variance, ACF is [1, 0, 0, ...]
+        # So τ_int = 0.5
+        assert tau == 0.5
+
+
+class TestEffectiveSampleSize:
+    """Tests for effective sample size."""
+
+    def test_n_eff_uncorrelated(self):
+        """Test N_eff ≈ N for uncorrelated data."""
+        np.random.seed(42)
+        n = 1000
+        data = np.random.randn(n)
+
+        n_eff = effective_sample_size(data)
+
+        # For uncorrelated data, N_eff ≈ N
+        assert n_eff == pytest.approx(n, rel=0.2)
+
+    def test_n_eff_correlated_smaller(self):
+        """Test N_eff < N for correlated data."""
+        alpha = 0.9
+        n = 5000
+        data = generate_ar1(n, alpha, seed=42)
+
+        n_eff = effective_sample_size(data)
+
+        # N_eff should be significantly smaller than N
+        assert n_eff < n / 2
+
+    def test_n_eff_formula(self):
+        """Test N_eff = N / (2τ) relationship."""
+        alpha = 0.8
+        n = 10000
+        data = generate_ar1(n, alpha, seed=42)
+
+        tau = integrated_autocorrelation_time(data)
+        n_eff = effective_sample_size(data)
+
+        expected = n / (2 * tau)
+        assert n_eff == pytest.approx(expected, rel=0.01)
+
+    def test_n_eff_positive(self):
+        """Test N_eff is always positive."""
+        data = np.random.randn(100)
+        n_eff = effective_sample_size(data)
+        assert n_eff > 0
+
+    def test_n_eff_at_most_n(self):
+        """Test N_eff <= N."""
+        data = np.random.randn(100)
+        n_eff = effective_sample_size(data)
+        assert n_eff <= 100
+
+    def test_n_eff_empty_raises(self):
+        """Test N_eff raises for empty data."""
+        with pytest.raises(ValueError, match="empty"):
+            effective_sample_size(np.array([]))
+
+    def test_n_eff_single_point(self):
+        """Test N_eff for single point."""
+        n_eff = effective_sample_size(np.array([1.0]))
+        assert n_eff == 1.0
+
+    def test_n_eff_error_estimation(self):
+        """Test using N_eff for error estimation."""
+        # Generate correlated data with known properties
+        alpha = 0.9
+        n = 5000
+        data = generate_ar1(n, alpha, seed=42)
+
+        n_eff = effective_sample_size(data)
+
+        # Naive error (ignoring correlations)
+        naive_error = np.std(data) / np.sqrt(n)
+
+        # True error (accounting for correlations)
+        true_error = np.std(data) / np.sqrt(n_eff)
+
+        # True error should be larger
+        assert true_error > naive_error
+
+
+class TestAutocorrelationIntegration:
+    """Integration tests for autocorrelation functions."""
+
+    def test_blocking_vs_tau_int(self):
+        """Test blocking error is consistent with τ_int."""
+        alpha = 0.85
+        n = 5000
+        data = generate_ar1(n, alpha, seed=42)
+
+        # Get τ_int and compute expected error
+        tau = integrated_autocorrelation_time(data)
+        expected_error = np.std(data) * np.sqrt(2 * tau / n)
+
+        # Get blocking error
+        _, blocking_err = blocking_error(data)
+
+        # Should be similar (within factor of 2)
+        assert blocking_err == pytest.approx(expected_error, rel=0.5)
+
+    def test_acf_methods_consistent(self):
+        """Test direct and FFT ACF give same τ_int."""
+        alpha = 0.8
+        data = generate_ar1(5000, alpha, seed=42)
+
+        acf_direct = autocorrelation_function(data, max_lag=100)
+        acf_fft = autocorrelation_function_fft(data, max_lag=100)
+
+        # Integrate both
+        tau_direct = 0.5 + np.sum(acf_direct[1:])
+        tau_fft = 0.5 + np.sum(acf_fft[1:])
+
+        assert tau_direct == pytest.approx(tau_fft, rel=0.01)
+
+    def test_monte_carlo_like_data(self):
+        """Test with Monte Carlo-like correlated data."""
+        # Simulate energy-like observable from a Monte Carlo
+        np.random.seed(42)
+        n = 10000
+
+        # Create data with slow drift (like near phase transition)
+        tau_true = 50.0
+        alpha = np.exp(-1 / tau_true)
+        data = generate_ar1(n, alpha, seed=42)
+
+        # Add a mean (like actual energy values)
+        data = data * 10 - 500  # E ≈ -500 ± 10
+
+        # Compute effective sample size
+        n_eff = effective_sample_size(data)
+
+        # Should be much smaller than n
+        assert n_eff < n / 10
+
+        # Error estimate should be reasonable
+        error = np.std(data) / np.sqrt(n_eff)
+        naive_error = np.std(data) / np.sqrt(n)
+
+        # True error should be ~10x larger than naive
+        assert error > 5 * naive_error

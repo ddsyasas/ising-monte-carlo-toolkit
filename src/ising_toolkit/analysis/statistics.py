@@ -351,3 +351,373 @@ def blocking_error(
 
     # Return maximum error (plateau value)
     return mean, float(np.max(errors)) if errors else float(np.std(data, ddof=1) / np.sqrt(n))
+
+
+def autocorrelation_function(
+    data: np.ndarray,
+    max_lag: Optional[int] = None,
+) -> np.ndarray:
+    """Compute normalized autocorrelation function.
+
+    The autocorrelation function measures how correlated a time series
+    is with itself at different time lags:
+
+        A(t) = ⟨(x(τ) - ⟨x⟩)(x(τ+t) - ⟨x⟩)⟩ / ⟨(x - ⟨x⟩)²⟩
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of time series data.
+    max_lag : int, optional
+        Maximum lag to compute. Default is len(data) // 4.
+
+    Returns
+    -------
+    np.ndarray
+        Array of A(t) for t = 0, 1, ..., max_lag.
+        A(0) = 1 by definition.
+
+    Notes
+    -----
+    The autocorrelation function decays from 1 at t=0 to ~0 for
+    uncorrelated data. For exponentially correlated data (e.g., from
+    Monte Carlo), it decays as A(t) ≈ exp(-t/τ).
+
+    This implementation uses the direct method, which is O(n * max_lag).
+    For very long time series, FFT-based methods are more efficient.
+
+    Examples
+    --------
+    >>> # Generate AR(1) process with known autocorrelation
+    >>> tau = 10.0
+    >>> alpha = np.exp(-1/tau)
+    >>> data = generate_ar1(1000, alpha)
+    >>> acf = autocorrelation_function(data, max_lag=50)
+    >>> # A(t) should decay as alpha^t = exp(-t/tau)
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n == 1:
+        return np.array([1.0])
+
+    if max_lag is None:
+        max_lag = n // 4
+
+    # Ensure max_lag is valid
+    max_lag = min(max_lag, n - 1)
+
+    # Subtract mean
+    x = data - np.mean(data)
+
+    # Compute variance (denominator)
+    variance = np.var(x, ddof=0)  # Population variance
+
+    if variance == 0:
+        # Constant data: return 1 at lag 0, 0 elsewhere
+        acf = np.zeros(max_lag + 1)
+        acf[0] = 1.0
+        return acf
+
+    # Compute autocorrelation for each lag
+    acf = np.zeros(max_lag + 1)
+
+    for t in range(max_lag + 1):
+        if t == 0:
+            acf[t] = 1.0
+        else:
+            # Autocorrelation at lag t: ⟨x[:-t] * x[t:]⟩ / var
+            acf[t] = np.mean(x[:-t] * x[t:]) / variance
+
+    return acf
+
+
+def autocorrelation_function_fft(
+    data: np.ndarray,
+    max_lag: Optional[int] = None,
+) -> np.ndarray:
+    """Compute normalized autocorrelation function using FFT.
+
+    This is a faster O(n log n) implementation using the Wiener-Khinchin
+    theorem: the autocorrelation is the inverse FFT of the power spectrum.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of time series data.
+    max_lag : int, optional
+        Maximum lag to return. Default is len(data) // 4.
+
+    Returns
+    -------
+    np.ndarray
+        Array of A(t) for t = 0, 1, ..., max_lag.
+
+    Notes
+    -----
+    Uses zero-padding to avoid circular correlation artifacts.
+    More efficient than direct method for large datasets.
+
+    Examples
+    --------
+    >>> data = np.random.randn(10000)
+    >>> acf = autocorrelation_function_fft(data, max_lag=100)
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n == 1:
+        return np.array([1.0])
+
+    if max_lag is None:
+        max_lag = n // 4
+
+    max_lag = min(max_lag, n - 1)
+
+    # Subtract mean
+    x = data - np.mean(data)
+
+    # Zero-pad to avoid circular correlation
+    n_padded = 2 * n
+
+    # FFT-based autocorrelation
+    fft_x = np.fft.fft(x, n=n_padded)
+    power_spectrum = fft_x * np.conj(fft_x)
+    acf_full = np.fft.ifft(power_spectrum).real
+
+    # Normalize by number of overlapping points and variance
+    # acf_full[t] = sum_{i=0}^{n-1-t} x[i]*x[i+t], need to divide by (n-t)
+    normalization = np.arange(n, n - max_lag - 1, -1)
+    acf = acf_full[: max_lag + 1] / normalization
+
+    # Normalize to get correlation (divide by variance)
+    if acf[0] != 0:
+        acf = acf / acf[0]
+
+    return acf
+
+
+def integrated_autocorrelation_time(
+    data: np.ndarray,
+    max_lag: Optional[int] = None,
+    c: float = 6.0,
+) -> float:
+    """Compute integrated autocorrelation time.
+
+    The integrated autocorrelation time is defined as:
+
+        τ_int = 1/2 + Σ_{t=1}^{∞} A(t)
+
+    where A(t) is the normalized autocorrelation function.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of time series data.
+    max_lag : int, optional
+        Maximum lag to consider. Default is len(data) // 4.
+    c : float, optional
+        Window parameter for automatic truncation. The sum is truncated
+        when t > c * τ_int. Default is 6.0 (recommended by Sokal).
+
+    Returns
+    -------
+    float
+        Integrated autocorrelation time τ_int.
+
+    Notes
+    -----
+    The integrated autocorrelation time determines the statistical
+    efficiency of the Monte Carlo sampling:
+
+    - The effective number of independent samples is N_eff = N / (2τ_int)
+    - The true variance of the mean is Var(mean) = σ² * 2τ_int / N
+
+    This implementation uses automatic windowing (Sokal's method):
+    sum until A(t) ≤ 0 or t > c * τ_int (running estimate).
+
+    For an AR(1) process with parameter α = exp(-1/τ):
+        τ_int = (1 + α) / (2(1 - α)) ≈ τ for large τ
+
+    Examples
+    --------
+    >>> # Uncorrelated data: τ_int ≈ 0.5
+    >>> data = np.random.randn(10000)
+    >>> tau = integrated_autocorrelation_time(data)
+    >>> print(f"τ_int = {tau:.2f}")  # Should be ~0.5
+
+    >>> # Correlated data: τ_int > 0.5
+    >>> tau = 20.0
+    >>> alpha = np.exp(-1/tau)
+    >>> correlated = generate_ar1(10000, alpha)
+    >>> tau_est = integrated_autocorrelation_time(correlated)
+
+    References
+    ----------
+    A. D. Sokal, "Monte Carlo Methods in Statistical Mechanics"
+    Lecture notes, 1997.
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n == 1:
+        return 0.5
+
+    if max_lag is None:
+        max_lag = n // 4
+
+    # Compute autocorrelation function
+    acf = autocorrelation_function(data, max_lag)
+
+    # Integrate with automatic windowing
+    tau_int = 0.5  # Start with 1/2
+
+    for t in range(1, len(acf)):
+        # Check automatic windowing condition
+        if t > c * tau_int:
+            break
+
+        # Stop if autocorrelation becomes negative
+        if acf[t] <= 0:
+            break
+
+        tau_int += acf[t]
+
+    return float(tau_int)
+
+
+def effective_sample_size(
+    data: np.ndarray,
+    max_lag: Optional[int] = None,
+) -> float:
+    """Compute effective number of independent samples.
+
+    For correlated data, the effective sample size is smaller than
+    the actual number of data points:
+
+        N_eff = N / (2 * τ_int)
+
+    where τ_int is the integrated autocorrelation time.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of time series data.
+    max_lag : int, optional
+        Maximum lag for autocorrelation calculation.
+        Default is len(data) // 4.
+
+    Returns
+    -------
+    float
+        Effective number of independent samples.
+
+    Notes
+    -----
+    The effective sample size is useful for:
+
+    - Estimating true statistical uncertainty: SE = std / sqrt(N_eff)
+    - Assessing Monte Carlo efficiency
+    - Determining appropriate thinning intervals
+
+    For uncorrelated data, N_eff ≈ N (since τ_int ≈ 0.5).
+    For highly correlated data, N_eff << N.
+
+    Examples
+    --------
+    >>> # Uncorrelated data
+    >>> data = np.random.randn(1000)
+    >>> n_eff = effective_sample_size(data)
+    >>> print(f"N_eff = {n_eff:.0f}")  # Should be ~1000
+
+    >>> # Correlated Monte Carlo data
+    >>> energy = run_monte_carlo(...)
+    >>> n_eff = effective_sample_size(energy)
+    >>> true_error = np.std(energy) / np.sqrt(n_eff)
+    """
+    data = np.asarray(data).flatten()
+    n = len(data)
+
+    if n == 0:
+        raise ValueError("Data array is empty")
+
+    if n == 1:
+        return 1.0
+
+    # Compute integrated autocorrelation time
+    tau_int = integrated_autocorrelation_time(data, max_lag)
+
+    # Effective sample size
+    n_eff = n / (2 * tau_int)
+
+    # N_eff cannot exceed N
+    return min(float(n_eff), float(n))
+
+
+def generate_ar1(
+    n: int,
+    alpha: float,
+    seed: Optional[int] = None,
+) -> np.ndarray:
+    """Generate AR(1) (autoregressive) process for testing.
+
+    Generates samples from:
+        x[t] = α * x[t-1] + ε[t]
+
+    where ε[t] ~ N(0, 1-α²) to ensure unit variance.
+
+    Parameters
+    ----------
+    n : int
+        Number of samples to generate.
+    alpha : float
+        Autoregressive parameter, must be in (-1, 1).
+        Higher |α| means stronger correlation.
+        α = exp(-1/τ) gives autocorrelation time τ.
+    seed : int, optional
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    np.ndarray
+        AR(1) time series with unit variance.
+
+    Notes
+    -----
+    The autocorrelation function of AR(1) is A(t) = α^t.
+    The integrated autocorrelation time is:
+        τ_int = (1 + α) / (2(1 - α))
+
+    Examples
+    --------
+    >>> # Generate AR(1) with correlation time ~10
+    >>> tau = 10.0
+    >>> alpha = np.exp(-1/tau)
+    >>> data = generate_ar1(10000, alpha, seed=42)
+    >>> tau_est = integrated_autocorrelation_time(data)
+    """
+    if not -1 < alpha < 1:
+        raise ValueError("alpha must be in (-1, 1)")
+
+    rng = np.random.default_rng(seed)
+
+    # Innovation variance to ensure unit variance of x
+    innovation_std = np.sqrt(1 - alpha**2)
+
+    # Generate AR(1) process
+    x = np.zeros(n)
+    x[0] = rng.standard_normal()
+
+    for t in range(1, n):
+        x[t] = alpha * x[t - 1] + innovation_std * rng.standard_normal()
+
+    return x
