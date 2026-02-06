@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ising_toolkit.models import Ising1D, Ising2D, Ising3D
+from ising_toolkit.models import Ising1D, Ising2D, Ising3D, create_model
 from ising_toolkit.utils import ConfigurationError, CRITICAL_TEMP_2D, CRITICAL_TEMP_3D
 
 
@@ -1332,3 +1332,101 @@ class TestIsing3DRepr:
         assert "size=8" in repr_str
         assert "n_spins=512" in repr_str
         assert "periodic" in repr_str
+
+
+# =============================================================================
+# Factory Function Tests
+# =============================================================================
+
+
+class TestCreateModel:
+    """Tests for the create_model factory function."""
+
+    def test_create_ising1d(self):
+        """Test creating 1D model with 'ising1d'."""
+        model = create_model("ising1d", size=10, temperature=2.0)
+
+        assert isinstance(model, Ising1D)
+        assert model.size == 10
+        assert model.temperature == 2.0
+
+    def test_create_ising2d(self):
+        """Test creating 2D model with 'ising2d'."""
+        model = create_model("ising2d", size=16, temperature=2.269)
+
+        assert isinstance(model, Ising2D)
+        assert model.size == 16
+        assert model.n_spins == 256
+
+    def test_create_ising3d(self):
+        """Test creating 3D model with 'ising3d'."""
+        model = create_model("ising3d", size=8, temperature=4.511)
+
+        assert isinstance(model, Ising3D)
+        assert model.size == 8
+        assert model.n_spins == 512
+
+    def test_create_shorthand_1d(self):
+        """Test creating 1D model with shorthand '1d'."""
+        model = create_model("1d", size=20, temperature=1.5)
+
+        assert isinstance(model, Ising1D)
+        assert model.size == 20
+
+    def test_create_shorthand_2d(self):
+        """Test creating 2D model with shorthand '2d'."""
+        model = create_model("2d", size=32, temperature=2.0)
+
+        assert isinstance(model, Ising2D)
+        assert model.size == 32
+
+    def test_create_shorthand_3d(self):
+        """Test creating 3D model with shorthand '3d'."""
+        model = create_model("3d", size=10, temperature=4.0)
+
+        assert isinstance(model, Ising3D)
+        assert model.size == 10
+
+    def test_create_case_insensitive(self):
+        """Test that model type is case-insensitive."""
+        model1 = create_model("ISING2D", size=8, temperature=2.0)
+        model2 = create_model("Ising2D", size=8, temperature=2.0)
+        model3 = create_model("ising2d", size=8, temperature=2.0)
+
+        assert isinstance(model1, Ising2D)
+        assert isinstance(model2, Ising2D)
+        assert isinstance(model3, Ising2D)
+
+    def test_create_with_all_parameters(self):
+        """Test creating model with all optional parameters."""
+        model = create_model(
+            "2d",
+            size=16,
+            temperature=2.5,
+            coupling=1.5,
+            boundary="fixed"
+        )
+
+        assert isinstance(model, Ising2D)
+        assert model.size == 16
+        assert model.temperature == 2.5
+        assert model.coupling == 1.5
+        assert model.boundary == "fixed"
+
+    def test_create_invalid_type(self):
+        """Test that invalid model type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown model type"):
+            create_model("ising4d", size=8, temperature=2.0)
+
+        with pytest.raises(ValueError, match="Unknown model type"):
+            create_model("invalid", size=8, temperature=2.0)
+
+    def test_create_error_message_shows_valid_types(self):
+        """Test that error message includes valid options."""
+        with pytest.raises(ValueError) as exc_info:
+            create_model("bad_type", size=8, temperature=2.0)
+
+        error_msg = str(exc_info.value)
+        assert "1d" in error_msg
+        assert "2d" in error_msg
+        assert "3d" in error_msg
