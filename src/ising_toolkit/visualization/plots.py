@@ -823,3 +823,386 @@ def plot_time_series(
         plt.savefig(save, dpi=150, bbox_inches='tight')
 
     return ax
+
+
+def plot_spin_configuration(
+    spins: np.ndarray,
+    ax=None,
+    cmap: str = 'RdBu',
+    title: Optional[str] = None,
+    show_colorbar: bool = False,
+    save: Optional[str] = None,
+    **kwargs,
+):
+    """Plot 2D spin configuration as heatmap.
+
+    Parameters
+    ----------
+    spins : np.ndarray
+        2D array with values +1 or -1.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    cmap : str, optional
+        Colormap. Default is 'RdBu' (red for -1, blue for +1).
+    title : str, optional
+        Plot title.
+    show_colorbar : bool, optional
+        Show colorbar. Default is False.
+    save : str, optional
+        Path to save figure.
+    **kwargs
+        Additional arguments passed to imshow.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+
+    Examples
+    --------
+    >>> spins = model.spins
+    >>> ax = plot_spin_configuration(spins, title='T = 2.0')
+    >>> ax = plot_spin_configuration(spins, cmap='coolwarm', show_colorbar=True)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if spins.ndim != 2:
+        raise ValueError(f"Expected 2D array, got {spins.ndim}D")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+    im = ax.imshow(
+        spins,
+        cmap=cmap,
+        vmin=-1,
+        vmax=1,
+        origin='lower',
+        interpolation='nearest',
+        **kwargs
+    )
+
+    if show_colorbar:
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar.set_ticks([-1, 0, 1])
+        cbar.set_ticklabels(['-1', '0', '+1'])
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_aspect('equal')
+
+    if title:
+        ax.set_title(title)
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def plot_configuration_comparison(
+    configurations: List[np.ndarray],
+    titles: Optional[List[str]] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    cmap: str = 'RdBu',
+    show_colorbar: bool = True,
+    save: Optional[str] = None,
+):
+    """Plot multiple configurations side by side.
+
+    Useful for comparing spin configurations at different temperatures:
+    T < Tc (ordered), T = Tc (critical), T > Tc (disordered).
+
+    Parameters
+    ----------
+    configurations : list of np.ndarray
+        List of 2D spin configurations.
+    titles : list of str, optional
+        Titles for each subplot. Default is None.
+    figsize : tuple, optional
+        Figure size. Default is (4 * n_configs, 4).
+    cmap : str, optional
+        Colormap. Default is 'RdBu'.
+    show_colorbar : bool, optional
+        Show colorbar on last panel. Default is True.
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object.
+    axes : np.ndarray
+        Array of axes objects.
+
+    Examples
+    --------
+    >>> configs = [spins_low_T, spins_Tc, spins_high_T]
+    >>> titles = ['T = 1.5 (ordered)', 'T = 2.27 (critical)', 'T = 3.0 (disordered)']
+    >>> fig, axes = plot_configuration_comparison(configs, titles=titles)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    n_configs = len(configurations)
+    if n_configs == 0:
+        raise ValueError("At least one configuration required")
+
+    if titles is not None and len(titles) != n_configs:
+        raise ValueError(f"Number of titles ({len(titles)}) must match configurations ({n_configs})")
+
+    if figsize is None:
+        figsize = (4 * n_configs, 4)
+
+    fig, axes = plt.subplots(1, n_configs, figsize=figsize)
+
+    if n_configs == 1:
+        axes = np.array([axes])
+
+    for i, (config, ax) in enumerate(zip(configurations, axes)):
+        if config.ndim != 2:
+            raise ValueError(f"Configuration {i} must be 2D, got {config.ndim}D")
+
+        im = ax.imshow(
+            config,
+            cmap=cmap,
+            vmin=-1,
+            vmax=1,
+            origin='lower',
+            interpolation='nearest',
+        )
+
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_aspect('equal')
+
+        if titles is not None:
+            ax.set_title(titles[i])
+
+    # Add colorbar to the last axes
+    if show_colorbar:
+        cbar = fig.colorbar(im, ax=axes[-1], shrink=0.8)
+        cbar.set_ticks([-1, 0, 1])
+        cbar.set_ticklabels(['↓', '', '↑'])
+
+    plt.tight_layout()
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return fig, axes
+
+
+def plot_spin_configuration_3d(
+    spins: np.ndarray,
+    ax=None,
+    slice_axis: int = 2,
+    slice_index: Optional[int] = None,
+    cmap: str = 'RdBu',
+    title: Optional[str] = None,
+    show_colorbar: bool = False,
+    save: Optional[str] = None,
+    **kwargs,
+):
+    """Plot slice of 3D spin configuration.
+
+    Extracts a 2D slice from a 3D configuration and plots it.
+
+    Parameters
+    ----------
+    spins : np.ndarray
+        3D array with values +1 or -1.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure.
+    slice_axis : int, optional
+        Axis perpendicular to the slice (0, 1, or 2). Default is 2 (z-axis).
+    slice_index : int, optional
+        Index along slice_axis. Default is middle of array.
+    cmap : str, optional
+        Colormap. Default is 'RdBu'.
+    title : str, optional
+        Plot title. If None, generates automatic title.
+    show_colorbar : bool, optional
+        Show colorbar. Default is False.
+    save : str, optional
+        Path to save figure.
+    **kwargs
+        Additional arguments passed to imshow.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes with the plot.
+
+    Examples
+    --------
+    >>> # Plot xy-plane at z=L/2
+    >>> ax = plot_spin_configuration_3d(spins_3d, slice_axis=2)
+    >>> # Plot xz-plane at y=0
+    >>> ax = plot_spin_configuration_3d(spins_3d, slice_axis=1, slice_index=0)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if spins.ndim != 3:
+        raise ValueError(f"Expected 3D array, got {spins.ndim}D")
+
+    if slice_axis not in [0, 1, 2]:
+        raise ValueError(f"slice_axis must be 0, 1, or 2, got {slice_axis}")
+
+    # Default to middle slice
+    if slice_index is None:
+        slice_index = spins.shape[slice_axis] // 2
+
+    if slice_index < 0 or slice_index >= spins.shape[slice_axis]:
+        raise ValueError(
+            f"slice_index {slice_index} out of bounds for axis {slice_axis} "
+            f"with size {spins.shape[slice_axis]}"
+        )
+
+    # Extract slice
+    if slice_axis == 0:
+        slice_2d = spins[slice_index, :, :]
+        axis_labels = ('y', 'z')
+        axis_name = 'x'
+    elif slice_axis == 1:
+        slice_2d = spins[:, slice_index, :]
+        axis_labels = ('x', 'z')
+        axis_name = 'y'
+    else:  # slice_axis == 2
+        slice_2d = spins[:, :, slice_index]
+        axis_labels = ('x', 'y')
+        axis_name = 'z'
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+    im = ax.imshow(
+        slice_2d,
+        cmap=cmap,
+        vmin=-1,
+        vmax=1,
+        origin='lower',
+        interpolation='nearest',
+        **kwargs
+    )
+
+    if show_colorbar:
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar.set_ticks([-1, 0, 1])
+        cbar.set_ticklabels(['-1', '0', '+1'])
+
+    ax.set_xlabel(axis_labels[0])
+    ax.set_ylabel(axis_labels[1])
+    ax.set_aspect('equal')
+
+    if title is None:
+        title = f'{axis_name} = {slice_index}'
+    ax.set_title(title)
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return ax
+
+
+def plot_spin_configuration_3d_slices(
+    spins: np.ndarray,
+    n_slices: int = 4,
+    slice_axis: int = 2,
+    figsize: Optional[Tuple[float, float]] = None,
+    cmap: str = 'RdBu',
+    save: Optional[str] = None,
+):
+    """Plot multiple slices of 3D spin configuration.
+
+    Creates a grid showing evenly-spaced slices through a 3D configuration.
+
+    Parameters
+    ----------
+    spins : np.ndarray
+        3D array with values +1 or -1.
+    n_slices : int, optional
+        Number of slices to show. Default is 4.
+    slice_axis : int, optional
+        Axis perpendicular to the slices (0, 1, or 2). Default is 2 (z-axis).
+    figsize : tuple, optional
+        Figure size. Default is (4 * n_slices, 4).
+    cmap : str, optional
+        Colormap. Default is 'RdBu'.
+    save : str, optional
+        Path to save figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object.
+    axes : np.ndarray
+        Array of axes objects.
+
+    Examples
+    --------
+    >>> fig, axes = plot_spin_configuration_3d_slices(spins_3d, n_slices=5)
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib required for plotting")
+
+    if spins.ndim != 3:
+        raise ValueError(f"Expected 3D array, got {spins.ndim}D")
+
+    if slice_axis not in [0, 1, 2]:
+        raise ValueError(f"slice_axis must be 0, 1, or 2, got {slice_axis}")
+
+    axis_size = spins.shape[slice_axis]
+    n_slices = min(n_slices, axis_size)
+
+    # Calculate slice indices
+    slice_indices = np.linspace(0, axis_size - 1, n_slices, dtype=int)
+
+    if figsize is None:
+        figsize = (4 * n_slices, 4)
+
+    fig, axes = plt.subplots(1, n_slices, figsize=figsize)
+
+    if n_slices == 1:
+        axes = np.array([axes])
+
+    axis_names = ['x', 'y', 'z']
+    axis_name = axis_names[slice_axis]
+
+    for ax, idx in zip(axes, slice_indices):
+        plot_spin_configuration_3d(
+            spins,
+            ax=ax,
+            slice_axis=slice_axis,
+            slice_index=idx,
+            cmap=cmap,
+            title=f'{axis_name} = {idx}',
+            show_colorbar=False,
+        )
+
+    # Add colorbar to the figure
+    fig.colorbar(
+        ax.images[0],
+        ax=axes.tolist(),
+        shrink=0.6,
+        location='right',
+        label='Spin',
+        ticks=[-1, 0, 1],
+    )
+
+    plt.tight_layout()
+
+    if save:
+        plt.savefig(save, dpi=150, bbox_inches='tight')
+
+    return fig, axes

@@ -17,6 +17,10 @@ from ising_toolkit.visualization import (
     plot_binder_cumulant,
     plot_scaling_collapse,
     plot_configuration,
+    plot_spin_configuration,
+    plot_configuration_comparison,
+    plot_spin_configuration_3d,
+    plot_spin_configuration_3d_slices,
     plot_energy_histogram,
     plot_time_series,
 )
@@ -114,6 +118,37 @@ def sample_energy_series():
     # Simulate equilibrated energy fluctuations
     energy = -1.7 + np.cumsum(np.random.normal(0, 0.01, n)) * 0.01
     return energy
+
+
+@pytest.fixture
+def sample_spin_config_3d():
+    """Create sample 3D spin configuration."""
+    np.random.seed(42)
+    L = 16
+    spins = np.random.choice([-1, 1], size=(L, L, L))
+    # Add some domain structure
+    spins[:L//2, :L//2, :L//2] = 1
+    spins[L//2:, L//2:, L//2:] = 1
+    return spins
+
+
+@pytest.fixture
+def multiple_spin_configs():
+    """Create multiple 2D spin configurations for comparison tests."""
+    np.random.seed(42)
+    L = 32
+
+    # Ordered (low T)
+    ordered = np.ones((L, L), dtype=int)
+    ordered[:3, :3] = -1  # Small defect
+
+    # Critical (T ~ Tc) - mixed domains
+    critical = np.random.choice([-1, 1], size=(L, L))
+
+    # Disordered (high T)
+    disordered = np.random.choice([-1, 1], size=(L, L))
+
+    return [ordered, critical, disordered]
 
 
 @pytest.fixture
@@ -687,6 +722,432 @@ class TestPlotConfiguration:
 
         assert ax.get_aspect() == 'equal' or ax.get_aspect() == 1.0
         plt.close()
+
+
+# ============================================================================
+# Tests for plot_spin_configuration
+# ============================================================================
+
+class TestPlotSpinConfiguration:
+    """Tests for plot_spin_configuration function."""
+
+    def test_basic_plot(self, sample_spin_config):
+        """Test basic spin configuration plot."""
+        ax = plot_spin_configuration(sample_spin_config)
+
+        assert ax is not None
+        plt.close()
+
+    def test_returns_axes(self, sample_spin_config):
+        """Test returns axes object."""
+        ax = plot_spin_configuration(sample_spin_config)
+
+        assert hasattr(ax, 'imshow')
+        plt.close()
+
+    def test_custom_axes(self, sample_spin_config):
+        """Test with custom axes."""
+        fig, ax = plt.subplots()
+
+        returned_ax = plot_spin_configuration(sample_spin_config, ax=ax)
+
+        assert returned_ax is ax
+        plt.close(fig)
+
+    def test_colorbar(self, sample_spin_config):
+        """Test colorbar is shown when requested."""
+        ax = plot_spin_configuration(sample_spin_config, show_colorbar=True)
+
+        assert ax is not None
+        plt.close()
+
+    def test_no_colorbar_default(self, sample_spin_config):
+        """Test colorbar is off by default."""
+        ax = plot_spin_configuration(sample_spin_config)
+
+        # Should still work without colorbar
+        assert ax is not None
+        plt.close()
+
+    def test_custom_colormap(self, sample_spin_config):
+        """Test custom colormap."""
+        ax = plot_spin_configuration(sample_spin_config, cmap='coolwarm')
+
+        assert ax is not None
+        plt.close()
+
+    def test_with_title(self, sample_spin_config):
+        """Test adding title."""
+        title = "T = 2.27"
+        ax = plot_spin_configuration(sample_spin_config, title=title)
+
+        assert ax.get_title() == title
+        plt.close()
+
+    def test_save_figure(self, sample_spin_config, output_dir):
+        """Test saving configuration plot."""
+        save_path = output_dir / "spin_config.png"
+
+        plot_spin_configuration(sample_spin_config, save=str(save_path))
+        plt.close()
+
+        assert save_path.exists()
+
+    def test_aspect_ratio(self, sample_spin_config):
+        """Test aspect ratio is equal."""
+        ax = plot_spin_configuration(sample_spin_config)
+
+        assert ax.get_aspect() == 'equal' or ax.get_aspect() == 1.0
+        plt.close()
+
+    def test_raises_for_wrong_dimensions(self):
+        """Test error for non-2D array."""
+        spins_1d = np.array([1, -1, 1, -1])
+
+        with pytest.raises(ValueError, match="2D"):
+            plot_spin_configuration(spins_1d)
+
+    def test_axis_labels(self, sample_spin_config):
+        """Test axis labels are set correctly."""
+        ax = plot_spin_configuration(sample_spin_config)
+
+        assert ax.get_xlabel() == 'x'
+        assert ax.get_ylabel() == 'y'
+        plt.close()
+
+
+# ============================================================================
+# Tests for plot_configuration_comparison
+# ============================================================================
+
+class TestPlotConfigurationComparison:
+    """Tests for plot_configuration_comparison function."""
+
+    def test_basic_comparison(self, multiple_spin_configs):
+        """Test basic comparison plot."""
+        fig, axes = plot_configuration_comparison(multiple_spin_configs)
+
+        assert fig is not None
+        assert len(axes) == 3
+        plt.close(fig)
+
+    def test_with_titles(self, multiple_spin_configs):
+        """Test with custom titles."""
+        titles = ['T < Tc', 'T = Tc', 'T > Tc']
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            titles=titles
+        )
+
+        for ax, title in zip(axes, titles):
+            assert ax.get_title() == title
+
+        plt.close(fig)
+
+    def test_custom_figsize(self, multiple_spin_configs):
+        """Test custom figure size."""
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            figsize=(15, 5)
+        )
+
+        assert fig.get_figwidth() == 15
+        assert fig.get_figheight() == 5
+        plt.close(fig)
+
+    def test_colorbar(self, multiple_spin_configs):
+        """Test colorbar is shown."""
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            show_colorbar=True
+        )
+
+        assert fig is not None
+        plt.close(fig)
+
+    def test_no_colorbar(self, multiple_spin_configs):
+        """Test without colorbar."""
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            show_colorbar=False
+        )
+
+        assert fig is not None
+        plt.close(fig)
+
+    def test_custom_colormap(self, multiple_spin_configs):
+        """Test custom colormap."""
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            cmap='coolwarm'
+        )
+
+        assert fig is not None
+        plt.close(fig)
+
+    def test_save_figure(self, multiple_spin_configs, output_dir):
+        """Test saving comparison plot."""
+        save_path = output_dir / "comparison.png"
+
+        fig, axes = plot_configuration_comparison(
+            multiple_spin_configs,
+            save=str(save_path)
+        )
+        plt.close(fig)
+
+        assert save_path.exists()
+
+    def test_single_config(self, sample_spin_config):
+        """Test with single configuration."""
+        fig, axes = plot_configuration_comparison([sample_spin_config])
+
+        assert len(axes) == 1
+        plt.close(fig)
+
+    def test_empty_list_raises(self):
+        """Test error for empty list."""
+        with pytest.raises(ValueError, match="At least one"):
+            plot_configuration_comparison([])
+
+    def test_mismatched_titles_raises(self, multiple_spin_configs):
+        """Test error when title count doesn't match."""
+        with pytest.raises(ValueError, match="titles"):
+            plot_configuration_comparison(
+                multiple_spin_configs,
+                titles=['Only', 'Two']
+            )
+
+    def test_wrong_dimensions_raises(self, sample_spin_config_3d):
+        """Test error for non-2D configurations."""
+        with pytest.raises(ValueError, match="2D"):
+            plot_configuration_comparison([sample_spin_config_3d])
+
+
+# ============================================================================
+# Tests for plot_spin_configuration_3d
+# ============================================================================
+
+class TestPlotSpinConfiguration3d:
+    """Tests for plot_spin_configuration_3d function."""
+
+    def test_basic_plot(self, sample_spin_config_3d):
+        """Test basic 3D slice plot."""
+        ax = plot_spin_configuration_3d(sample_spin_config_3d)
+
+        assert ax is not None
+        plt.close()
+
+    def test_default_slice_z(self, sample_spin_config_3d):
+        """Test default slice is in z-direction."""
+        ax = plot_spin_configuration_3d(sample_spin_config_3d)
+
+        # Default axis should be z (axis 2)
+        assert ax.get_xlabel() == 'x'
+        assert ax.get_ylabel() == 'y'
+        plt.close()
+
+    def test_slice_axis_x(self, sample_spin_config_3d):
+        """Test slicing along x-axis."""
+        ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            slice_axis=0
+        )
+
+        assert ax.get_xlabel() == 'y'
+        assert ax.get_ylabel() == 'z'
+        plt.close()
+
+    def test_slice_axis_y(self, sample_spin_config_3d):
+        """Test slicing along y-axis."""
+        ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            slice_axis=1
+        )
+
+        assert ax.get_xlabel() == 'x'
+        assert ax.get_ylabel() == 'z'
+        plt.close()
+
+    def test_custom_slice_index(self, sample_spin_config_3d):
+        """Test custom slice index."""
+        ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            slice_index=5
+        )
+
+        assert 'z = 5' in ax.get_title()
+        plt.close()
+
+    def test_default_slice_is_middle(self, sample_spin_config_3d):
+        """Test default slice is in middle."""
+        L = sample_spin_config_3d.shape[2]
+        ax = plot_spin_configuration_3d(sample_spin_config_3d)
+
+        assert f'z = {L // 2}' in ax.get_title()
+        plt.close()
+
+    def test_custom_axes(self, sample_spin_config_3d):
+        """Test with custom axes."""
+        fig, ax = plt.subplots()
+
+        returned_ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            ax=ax
+        )
+
+        assert returned_ax is ax
+        plt.close(fig)
+
+    def test_custom_title(self, sample_spin_config_3d):
+        """Test custom title overrides default."""
+        custom_title = "Custom Title"
+        ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            title=custom_title
+        )
+
+        assert ax.get_title() == custom_title
+        plt.close()
+
+    def test_colorbar(self, sample_spin_config_3d):
+        """Test colorbar is shown when requested."""
+        ax = plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            show_colorbar=True
+        )
+
+        assert ax is not None
+        plt.close()
+
+    def test_save_figure(self, sample_spin_config_3d, output_dir):
+        """Test saving 3D slice plot."""
+        save_path = output_dir / "spin_3d_slice.png"
+
+        plot_spin_configuration_3d(
+            sample_spin_config_3d,
+            save=str(save_path)
+        )
+        plt.close()
+
+        assert save_path.exists()
+
+    def test_invalid_slice_axis_raises(self, sample_spin_config_3d):
+        """Test error for invalid slice axis."""
+        with pytest.raises(ValueError, match="slice_axis"):
+            plot_spin_configuration_3d(
+                sample_spin_config_3d,
+                slice_axis=3
+            )
+
+    def test_invalid_slice_index_raises(self, sample_spin_config_3d):
+        """Test error for out-of-bounds slice index."""
+        L = sample_spin_config_3d.shape[2]
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            plot_spin_configuration_3d(
+                sample_spin_config_3d,
+                slice_index=L + 1
+            )
+
+    def test_wrong_dimensions_raises(self, sample_spin_config):
+        """Test error for non-3D array."""
+        with pytest.raises(ValueError, match="3D"):
+            plot_spin_configuration_3d(sample_spin_config)
+
+
+# ============================================================================
+# Tests for plot_spin_configuration_3d_slices
+# ============================================================================
+
+class TestPlotSpinConfiguration3dSlices:
+    """Tests for plot_spin_configuration_3d_slices function."""
+
+    def test_basic_slices(self, sample_spin_config_3d):
+        """Test basic multi-slice plot."""
+        fig, axes = plot_spin_configuration_3d_slices(sample_spin_config_3d)
+
+        assert fig is not None
+        assert len(axes) == 4  # Default n_slices
+        plt.close(fig)
+
+    def test_custom_n_slices(self, sample_spin_config_3d):
+        """Test custom number of slices."""
+        fig, axes = plot_spin_configuration_3d_slices(
+            sample_spin_config_3d,
+            n_slices=6
+        )
+
+        assert len(axes) == 6
+        plt.close(fig)
+
+    def test_slice_axis(self, sample_spin_config_3d):
+        """Test different slice axes."""
+        for axis in [0, 1, 2]:
+            fig, axes = plot_spin_configuration_3d_slices(
+                sample_spin_config_3d,
+                slice_axis=axis
+            )
+
+            assert fig is not None
+            plt.close(fig)
+
+    def test_custom_figsize(self, sample_spin_config_3d):
+        """Test custom figure size."""
+        fig, axes = plot_spin_configuration_3d_slices(
+            sample_spin_config_3d,
+            figsize=(20, 5)
+        )
+
+        assert fig.get_figwidth() == 20
+        assert fig.get_figheight() == 5
+        plt.close(fig)
+
+    def test_save_figure(self, sample_spin_config_3d, output_dir):
+        """Test saving multi-slice plot."""
+        save_path = output_dir / "spin_3d_slices.png"
+
+        fig, axes = plot_spin_configuration_3d_slices(
+            sample_spin_config_3d,
+            save=str(save_path)
+        )
+        plt.close(fig)
+
+        assert save_path.exists()
+
+    def test_single_slice(self, sample_spin_config_3d):
+        """Test with single slice."""
+        fig, axes = plot_spin_configuration_3d_slices(
+            sample_spin_config_3d,
+            n_slices=1
+        )
+
+        assert len(axes) == 1
+        plt.close(fig)
+
+    def test_more_slices_than_size(self, sample_spin_config_3d):
+        """Test requesting more slices than array size."""
+        L = sample_spin_config_3d.shape[2]
+        fig, axes = plot_spin_configuration_3d_slices(
+            sample_spin_config_3d,
+            n_slices=L + 10
+        )
+
+        # Should cap at L slices
+        assert len(axes) == L
+        plt.close(fig)
+
+    def test_wrong_dimensions_raises(self, sample_spin_config):
+        """Test error for non-3D array."""
+        with pytest.raises(ValueError, match="3D"):
+            plot_spin_configuration_3d_slices(sample_spin_config)
+
+    def test_colorbar_present(self, sample_spin_config_3d):
+        """Test colorbar is added to figure."""
+        fig, axes = plot_spin_configuration_3d_slices(sample_spin_config_3d)
+
+        # Figure should have a colorbar
+        assert len(fig.axes) > len(axes)  # Extra axes for colorbar
+        plt.close(fig)
 
 
 # ============================================================================

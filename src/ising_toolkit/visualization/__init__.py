@@ -46,6 +46,10 @@ from ising_toolkit.visualization.plots import (
     plot_scaling_collapse,
     # Configuration plotting
     plot_configuration,
+    plot_spin_configuration,
+    plot_configuration_comparison,
+    plot_spin_configuration_3d,
+    plot_spin_configuration_3d_slices,
     # Histogram and time series
     plot_energy_histogram,
     plot_time_series,
@@ -94,6 +98,10 @@ __all__ = [
     "plot_scaling_collapse",
     # Configuration plotting
     "plot_configuration",
+    "plot_spin_configuration",
+    "plot_configuration_comparison",
+    "plot_spin_configuration_3d",
+    "plot_spin_configuration_3d_slices",
     # Histogram and time series
     "plot_energy_histogram",
     "plot_time_series",
