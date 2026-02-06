@@ -38,6 +38,19 @@ from ising_toolkit.visualization.styles import (
     format_axis_labels,
 )
 
+from ising_toolkit.visualization.plots import (
+    # Phase diagram plotting
+    plot_observable_vs_temperature,
+    plot_phase_diagram,
+    plot_binder_cumulant,
+    plot_scaling_collapse,
+    # Configuration plotting
+    plot_configuration,
+    # Histogram and time series
+    plot_energy_histogram,
+    plot_time_series,
+)
+
 __all__ = [
     # Style dictionaries
     "STYLE_PUBLICATION",
@@ -74,4 +87,14 @@ __all__ = [
     "add_theory_line",
     "configure_legend",
     "format_axis_labels",
+    # Phase diagram plotting
+    "plot_observable_vs_temperature",
+    "plot_phase_diagram",
+    "plot_binder_cumulant",
+    "plot_scaling_collapse",
+    # Configuration plotting
+    "plot_configuration",
+    # Histogram and time series
+    "plot_energy_histogram",
+    "plot_time_series",
 ]
