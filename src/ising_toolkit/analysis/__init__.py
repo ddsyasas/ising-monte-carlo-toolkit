@@ -23,6 +23,10 @@ from ising_toolkit.analysis.statistics import (
     optimal_block_size,
     plot_blocking_analysis,
 )
+from ising_toolkit.analysis.sweep import (
+    TemperatureSweep,
+    run_finite_size_scaling,
+)
 
 __all__ = [
     # Observables
@@ -48,4 +52,7 @@ __all__ = [
     "blocking_analysis_log",
     "optimal_block_size",
     "plot_blocking_analysis",
+    # Temperature sweep
+    "TemperatureSweep",
+    "run_finite_size_scaling",
 ]
