@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from ising_toolkit.models import Ising1D, Ising2D, Ising3D
-from ising_toolkit.samplers import MetropolisSampler, WolffSampler
+from ising_toolkit.samplers import MetropolisSampler, WolffSampler, create_sampler
 from ising_toolkit.io import SimulationResults
 from ising_toolkit.utils import ConfigurationError, CRITICAL_TEMP_2D
 
@@ -662,3 +662,95 @@ class TestWolffVsMetropolis:
 
         # At Tc, Wolff should be able to explore both phases
         assert has_positive or has_negative  # At least one phase explored
+
+
+# =============================================================================
+# Factory Function Tests
+# =============================================================================
+
+
+class TestCreateSampler:
+    """Tests for the create_sampler factory function."""
+
+    def test_create_metropolis(self):
+        """Test creating Metropolis sampler."""
+        model = Ising2D(size=16, temperature=2.0)
+        sampler = create_sampler("metropolis", model, seed=42)
+
+        assert isinstance(sampler, MetropolisSampler)
+        assert sampler.model is model
+        assert sampler.seed == 42
+
+    def test_create_wolff(self):
+        """Test creating Wolff sampler."""
+        model = Ising2D(size=16, temperature=2.269)
+        sampler = create_sampler("wolff", model, seed=42)
+
+        assert isinstance(sampler, WolffSampler)
+        assert sampler.model is model
+        assert sampler.seed == 42
+
+    def test_create_case_insensitive(self):
+        """Test that algorithm names are case-insensitive."""
+        model = Ising2D(size=16, temperature=2.0)
+
+        sampler1 = create_sampler("METROPOLIS", model)
+        sampler2 = create_sampler("Metropolis", model)
+        sampler3 = create_sampler("metropolis", model)
+
+        assert isinstance(sampler1, MetropolisSampler)
+        assert isinstance(sampler2, MetropolisSampler)
+        assert isinstance(sampler3, MetropolisSampler)
+
+    def test_create_without_seed(self):
+        """Test creating sampler without seed."""
+        model = Ising2D(size=16, temperature=2.0)
+        sampler = create_sampler("metropolis", model)
+
+        assert sampler.seed is None
+        assert sampler.rng is not None
+
+    def test_create_invalid_algorithm(self):
+        """Test that invalid algorithm raises ValueError."""
+        model = Ising2D(size=16, temperature=2.0)
+
+        with pytest.raises(ValueError, match="Unknown algorithm"):
+            create_sampler("invalid", model)
+
+        with pytest.raises(ValueError, match="Unknown algorithm"):
+            create_sampler("swendsen-wang", model)
+
+    def test_create_error_message_shows_valid_options(self):
+        """Test that error message includes valid options."""
+        model = Ising2D(size=16, temperature=2.0)
+
+        with pytest.raises(ValueError) as exc_info:
+            create_sampler("bad_algorithm", model)
+
+        error_msg = str(exc_info.value)
+        assert "metropolis" in error_msg
+        assert "wolff" in error_msg
+
+    def test_create_wolff_with_1d_raises(self):
+        """Test that creating Wolff with 1D model raises ConfigurationError."""
+        model = Ising1D(size=100, temperature=1.0)
+
+        with pytest.raises(ConfigurationError, match="requires 2D or 3D"):
+            create_sampler("wolff", model)
+
+    def test_create_metropolis_with_1d_works(self):
+        """Test that Metropolis works with 1D model."""
+        model = Ising1D(size=100, temperature=1.0)
+        sampler = create_sampler("metropolis", model, seed=42)
+
+        assert isinstance(sampler, MetropolisSampler)
+
+    def test_create_sampler_with_3d_model(self):
+        """Test creating samplers with 3D model."""
+        model = Ising3D(size=8, temperature=4.0)
+
+        metro = create_sampler("metropolis", model, seed=42)
+        wolff = create_sampler("wolff", model, seed=42)
+
+        assert isinstance(metro, MetropolisSampler)
+        assert isinstance(wolff, WolffSampler)
