@@ -27,6 +27,9 @@ from ising_toolkit.analysis.sweep import (
     TemperatureSweep,
     run_finite_size_scaling,
 )
+from ising_toolkit.analysis.finite_size import (
+    FiniteSizeScaling,
+)
 
 __all__ = [
     # Observables
@@ -55,4 +58,6 @@ __all__ = [
     # Temperature sweep
     "TemperatureSweep",
     "run_finite_size_scaling",
+    # Finite-size scaling
+    "FiniteSizeScaling",
 ]
