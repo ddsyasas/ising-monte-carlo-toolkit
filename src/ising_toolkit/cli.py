@@ -1,13 +1,354 @@
 """Command-line interface for the Ising Monte Carlo toolkit."""
 
+import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Union
 
 import click
 import numpy as np
 
 from ising_toolkit import __version__
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def load_results_from_path(path: Union[str, Path]) -> Dict[str, Any]:
+    """Load simulation results from a file or directory.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to a single results file (.npz, .csv, .h5) or a directory
+        containing multiple result files.
+
+    Returns
+    -------
+    dict
+        Dictionary containing loaded results with keys:
+        - 'type': 'single' or 'sweep' or 'multi'
+        - 'data': The actual data (dict for single, list of dicts for multi)
+        - 'source': Original path
+
+    Raises
+    ------
+    click.ClickException
+        If the path doesn't exist or contains no valid result files.
+    """
+    path = Path(path)
+
+    if not path.exists():
+        raise click.ClickException(f"Path does not exist: {path}")
+
+    if path.is_file():
+        # Load single file
+        return _load_single_file(path)
+    elif path.is_dir():
+        # Load all result files from directory
+        return _load_directory(path)
+    else:
+        raise click.ClickException(f"Invalid path: {path}")
+
+
+def _load_single_file(filepath: Path) -> Dict[str, Any]:
+    """Load a single result file."""
+    suffix = filepath.suffix.lower()
+
+    if suffix == '.npz':
+        data = dict(np.load(filepath, allow_pickle=True))
+        # Convert numpy arrays to regular values where appropriate
+        for key in data:
+            if isinstance(data[key], np.ndarray) and data[key].ndim == 0:
+                data[key] = data[key].item()
+        result_type = 'sweep' if 'temperatures' in data else 'single'
+        return {'type': result_type, 'data': data, 'source': filepath}
+
+    elif suffix == '.csv':
+        # Try to load as sweep data
+        try:
+            data = np.genfromtxt(filepath, delimiter=',', names=True)
+            result = {name: data[name] for name in data.dtype.names}
+            return {'type': 'sweep', 'data': result, 'source': filepath}
+        except Exception as e:
+            raise click.ClickException(f"Failed to load CSV: {e}")
+
+    elif suffix in ['.h5', '.hdf5']:
+        try:
+            import h5py
+        except ImportError:
+            raise click.ClickException("h5py required for HDF5 files")
+
+        with h5py.File(filepath, 'r') as f:
+            data = {}
+            # Load attributes
+            for key in f.attrs:
+                data[key] = f.attrs[key]
+            # Load datasets
+            for key in f.keys():
+                data[key] = f[key][:]
+
+        result_type = 'sweep' if 'temperatures' in data else 'single'
+        return {'type': result_type, 'data': data, 'source': filepath}
+
+    else:
+        raise click.ClickException(f"Unsupported file format: {suffix}")
+
+
+def _load_directory(dirpath: Path) -> Dict[str, Any]:
+    """Load all result files from a directory."""
+    # Find all result files
+    patterns = ['*.npz', '*.csv', '*.h5', '*.hdf5']
+    files = []
+    for pattern in patterns:
+        files.extend(dirpath.glob(pattern))
+
+    # Filter out summary files
+    files = [f for f in files if 'summary' not in f.name.lower()]
+
+    if not files:
+        raise click.ClickException(f"No result files found in: {dirpath}")
+
+    # Load all files
+    results = []
+    for f in sorted(files):
+        try:
+            result = _load_single_file(f)
+            results.append(result)
+        except click.ClickException:
+            continue  # Skip files that can't be loaded
+
+    if not results:
+        raise click.ClickException(f"No valid result files in: {dirpath}")
+
+    return {
+        'type': 'multi',
+        'data': results,
+        'source': dirpath,
+        'count': len(results)
+    }
+
+
+def format_results_table(results: Dict[str, Any], observables: List[str]) -> str:
+    """Format analysis results as a pretty-printed table.
+
+    Parameters
+    ----------
+    results : dict
+        Analysis results dictionary containing observable statistics.
+    observables : list of str
+        List of observable names to include in the table.
+
+    Returns
+    -------
+    str
+        Formatted table string ready for printing.
+    """
+    lines = []
+
+    # Header
+    lines.append("=" * 70)
+    lines.append("Analysis Results")
+    lines.append("=" * 70)
+
+    # Source info
+    if 'source' in results:
+        lines.append(f"Source: {results['source']}")
+    if 'model' in results:
+        lines.append(f"Model: {results['model']}")
+    if 'size' in results:
+        lines.append(f"Size: {results['size']}")
+    if 'temperature' in results:
+        lines.append(f"Temperature: {results['temperature']:.4f}")
+    if 'n_samples' in results:
+        lines.append(f"Samples: {results['n_samples']}")
+
+    lines.append("-" * 70)
+
+    # Observable statistics
+    lines.append(f"{'Observable':<20} {'Mean':>12} {'Std':>12} {'Error':>12}")
+    lines.append("-" * 70)
+
+    for obs in observables:
+        if obs in results:
+            stats = results[obs]
+            if isinstance(stats, dict):
+                mean = stats.get('mean', float('nan'))
+                std = stats.get('std', float('nan'))
+                error = stats.get('error', stats.get('bootstrap_error', float('nan')))
+                lines.append(f"{obs:<20} {mean:>12.6f} {std:>12.6f} {error:>12.6f}")
+            else:
+                lines.append(f"{obs:<20} {stats:>12.6f}")
+
+    lines.append("=" * 70)
+
+    return '\n'.join(lines)
+
+
+def _calculate_bootstrap_error(data: np.ndarray, n_bootstrap: int = 1000,
+                                statistic: str = 'mean') -> float:
+    """Calculate bootstrap error for a statistic.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data array to bootstrap.
+    n_bootstrap : int
+        Number of bootstrap samples.
+    statistic : str
+        Statistic to compute ('mean', 'std', 'var').
+
+    Returns
+    -------
+    float
+        Bootstrap standard error.
+    """
+    n = len(data)
+    if n == 0:
+        return float('nan')
+
+    stat_func = {
+        'mean': np.mean,
+        'std': np.std,
+        'var': np.var,
+    }.get(statistic, np.mean)
+
+    bootstrap_stats = []
+    for _ in range(n_bootstrap):
+        indices = np.random.randint(0, n, size=n)
+        sample = data[indices]
+        bootstrap_stats.append(stat_func(sample))
+
+    return np.std(bootstrap_stats)
+
+
+def _analyze_single_result(data: Dict[str, Any], observables: List[str],
+                           n_bootstrap: int = 1000) -> Dict[str, Any]:
+    """Analyze a single simulation result.
+
+    Parameters
+    ----------
+    data : dict
+        Result data dictionary.
+    observables : list of str
+        Observables to analyze.
+    n_bootstrap : int
+        Number of bootstrap samples for error estimation.
+
+    Returns
+    -------
+    dict
+        Analysis results with statistics for each observable.
+    """
+    results = {}
+
+    # Copy metadata
+    for key in ['model', 'size', 'temperature', 'algorithm', 'steps']:
+        if key in data:
+            results[key] = data[key]
+
+    # Analyze observables
+    observable_keys = {
+        'energy': 'energies',
+        'magnetization': 'magnetizations',
+        'heat_capacity': 'heat_capacities',
+        'susceptibility': 'susceptibilities',
+    }
+
+    for obs in observables:
+        key = observable_keys.get(obs, obs)
+
+        # Check for time series data
+        if key in data:
+            values = np.asarray(data[key])
+            if values.ndim > 0 and len(values) > 1:
+                results[obs] = {
+                    'mean': np.mean(values),
+                    'std': np.std(values),
+                    'min': np.min(values),
+                    'max': np.max(values),
+                    'bootstrap_error': _calculate_bootstrap_error(values, n_bootstrap),
+                }
+                results['n_samples'] = len(values)
+            else:
+                results[obs] = float(values)
+
+        # Check for pre-computed mean/std
+        elif f'{obs}_mean' in data:
+            results[obs] = {
+                'mean': float(data[f'{obs}_mean']),
+                'std': float(data.get(f'{obs}_std', 0)),
+                'error': float(data.get(f'{obs}_std', 0)),
+            }
+
+    return results
+
+
+def _analyze_sweep_result(data: Dict[str, Any], observables: List[str],
+                          n_bootstrap: int = 1000) -> Dict[str, Any]:
+    """Analyze temperature sweep results.
+
+    Parameters
+    ----------
+    data : dict
+        Sweep result data dictionary.
+    observables : list of str
+        Observables to analyze.
+    n_bootstrap : int
+        Number of bootstrap samples for error estimation.
+
+    Returns
+    -------
+    dict
+        Analysis results including peak locations.
+    """
+    results = {}
+
+    # Copy metadata
+    for key in ['model', 'size', 'algorithm', 'steps']:
+        if key in data:
+            results[key] = data[key]
+
+    temperatures = np.asarray(data.get('temperatures', []))
+    results['n_temperatures'] = len(temperatures)
+    results['temp_range'] = (float(np.min(temperatures)), float(np.max(temperatures)))
+
+    # Observable analysis
+    observable_keys = {
+        'energy': 'energies',
+        'magnetization': 'magnetizations',
+        'heat_capacity': 'heat_capacities',
+        'susceptibility': 'susceptibilities',
+    }
+
+    for obs in observables:
+        key = observable_keys.get(obs, obs)
+
+        if key in data:
+            values = np.asarray(data[key])
+
+            results[obs] = {
+                'mean': float(np.mean(values)),
+                'std': float(np.std(values)),
+                'min': float(np.min(values)),
+                'max': float(np.max(values)),
+            }
+
+            # Find peak for susceptibility and heat capacity
+            if obs in ['susceptibility', 'heat_capacity']:
+                idx_peak = np.argmax(values)
+                results[obs]['peak_value'] = float(values[idx_peak])
+                results[obs]['peak_temperature'] = float(temperatures[idx_peak])
+
+            # Find transition for magnetization
+            if obs == 'magnetization' and len(values) > 2:
+                # Find steepest descent
+                dM_dT = np.gradient(values, temperatures)
+                idx_transition = np.argmin(dM_dT)
+                results[obs]['transition_temperature'] = float(temperatures[idx_transition])
+
+    return results
 
 
 @click.group()
@@ -857,6 +1198,221 @@ def benchmark():
     click.echo("="*50)
     click.echo("\nNote: Wolff is more efficient near Tc due to reduced")
     click.echo("critical slowing down.")
+
+
+@main.command()
+@click.argument('input', type=click.Path(exists=True))
+@click.option('--observables', '-O',
+              type=str,
+              default='all',
+              help='Comma-separated list of observables or "all"')
+@click.option('--bootstrap', '-b',
+              type=int,
+              default=1000,
+              show_default=True,
+              help='Number of bootstrap samples for error estimation')
+@click.option('--output', '-o',
+              type=click.Path(),
+              default=None,
+              help='Output file path (optional)')
+@click.option('--format', '-f',
+              type=click.Choice(['csv', 'json', 'hdf5']),
+              default='csv',
+              show_default=True,
+              help='Output file format')
+@click.option('-v', '--verbose',
+              is_flag=True,
+              help='Verbose output')
+def analyze(input, observables, bootstrap, output, format, verbose):
+    """Analyze simulation results.
+
+    Loads simulation results from a file or directory and computes
+    statistical analysis with bootstrap error estimates.
+
+    INPUT can be:
+    - A single .npz, .csv, or .h5 file from a simulation
+    - A directory containing multiple result files
+
+    Examples:
+
+        # Analyze a single simulation result
+        ising-sim analyze results.npz
+
+        # Analyze all files in a directory
+        ising-sim analyze results/
+
+        # Analyze specific observables
+        ising-sim analyze results.npz --observables energy,magnetization
+
+        # Save analysis to file
+        ising-sim analyze results.npz -o analysis.csv
+
+        # Save as JSON
+        ising-sim analyze results.npz -o analysis.json -f json
+    """
+    from datetime import datetime
+
+    # Parse observables
+    all_observables = ['energy', 'magnetization', 'heat_capacity', 'susceptibility']
+    if observables.lower() == 'all':
+        obs_list = all_observables
+    else:
+        obs_list = [o.strip() for o in observables.split(',')]
+        # Validate observables
+        for obs in obs_list:
+            if obs not in all_observables:
+                click.echo(f"Warning: Unknown observable '{obs}'", err=True)
+
+    if verbose:
+        click.echo(f"Loading results from: {input}")
+        click.echo(f"Observables: {obs_list}")
+        click.echo(f"Bootstrap samples: {bootstrap}")
+
+    # Load results
+    try:
+        loaded = load_results_from_path(input)
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        raise click.ClickException(f"Failed to load results: {e}")
+
+    result_type = loaded['type']
+
+    if verbose:
+        click.echo(f"Result type: {result_type}")
+
+    # Analyze based on result type
+    all_analysis = []
+
+    if result_type == 'single':
+        # Single simulation result
+        analysis = _analyze_single_result(loaded['data'], obs_list, bootstrap)
+        analysis['source'] = str(loaded['source'])
+        all_analysis.append(analysis)
+
+    elif result_type == 'sweep':
+        # Temperature sweep result
+        analysis = _analyze_sweep_result(loaded['data'], obs_list, bootstrap)
+        analysis['source'] = str(loaded['source'])
+        all_analysis.append(analysis)
+
+    elif result_type == 'multi':
+        # Multiple files
+        click.echo(f"\nAnalyzing {loaded['count']} result files...")
+
+        for i, result in enumerate(loaded['data']):
+            if verbose:
+                click.echo(f"  Processing: {result['source'].name}")
+
+            if result['type'] == 'single':
+                analysis = _analyze_single_result(result['data'], obs_list, bootstrap)
+            else:
+                analysis = _analyze_sweep_result(result['data'], obs_list, bootstrap)
+
+            analysis['source'] = str(result['source'])
+            all_analysis.append(analysis)
+
+    # Print results
+    for analysis in all_analysis:
+        click.echo("\n" + format_results_table(analysis, obs_list))
+
+    # Additional summary for sweeps
+    for analysis in all_analysis:
+        if 'susceptibility' in analysis and isinstance(analysis['susceptibility'], dict):
+            if 'peak_temperature' in analysis['susceptibility']:
+                click.echo(f"\nEstimated Tc (χ peak): {analysis['susceptibility']['peak_temperature']:.4f}")
+        if 'heat_capacity' in analysis and isinstance(analysis['heat_capacity'], dict):
+            if 'peak_temperature' in analysis['heat_capacity']:
+                click.echo(f"Estimated Tc (C peak): {analysis['heat_capacity']['peak_temperature']:.4f}")
+
+    # Save results if output specified
+    if output is not None:
+        output_path = Path(output)
+
+        if format == 'csv':
+            # Flatten analysis for CSV
+            with open(output_path, 'w') as f:
+                # Write header
+                headers = ['source', 'model', 'size', 'temperature']
+                for obs in obs_list:
+                    headers.extend([f'{obs}_mean', f'{obs}_std', f'{obs}_error'])
+                f.write(','.join(headers) + '\n')
+
+                # Write data rows
+                for analysis in all_analysis:
+                    row = [
+                        str(analysis.get('source', '')),
+                        str(analysis.get('model', '')),
+                        str(analysis.get('size', '')),
+                        str(analysis.get('temperature', '')),
+                    ]
+                    for obs in obs_list:
+                        if obs in analysis and isinstance(analysis[obs], dict):
+                            row.append(str(analysis[obs].get('mean', '')))
+                            row.append(str(analysis[obs].get('std', '')))
+                            row.append(str(analysis[obs].get('bootstrap_error',
+                                                             analysis[obs].get('error', ''))))
+                        else:
+                            row.extend(['', '', ''])
+                    f.write(','.join(row) + '\n')
+
+            click.echo(f"\nAnalysis saved to {output_path}")
+
+        elif format == 'json':
+            # Convert numpy types to Python types for JSON
+            def convert_numpy(obj):
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, (np.integer, np.floating)):
+                    return float(obj)
+                elif isinstance(obj, dict):
+                    return {k: convert_numpy(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy(v) for v in obj]
+                return obj
+
+            output_data = {
+                'analysis_date': datetime.now().isoformat(),
+                'observables': obs_list,
+                'bootstrap_samples': bootstrap,
+                'results': [convert_numpy(a) for a in all_analysis]
+            }
+
+            with open(output_path, 'w') as f:
+                json.dump(output_data, f, indent=2)
+
+            click.echo(f"\nAnalysis saved to {output_path}")
+
+        elif format == 'hdf5':
+            try:
+                import h5py
+            except ImportError:
+                raise click.ClickException("h5py required for HDF5 format")
+
+            with h5py.File(output_path, 'w') as f:
+                f.attrs['analysis_date'] = datetime.now().isoformat()
+                f.attrs['observables'] = obs_list
+                f.attrs['bootstrap_samples'] = bootstrap
+
+                for i, analysis in enumerate(all_analysis):
+                    grp = f.create_group(f'result_{i}')
+
+                    for key, value in analysis.items():
+                        if isinstance(value, dict):
+                            subgrp = grp.create_group(key)
+                            for k, v in value.items():
+                                if isinstance(v, (int, float, np.number)):
+                                    subgrp.attrs[k] = float(v)
+                                elif isinstance(v, str):
+                                    subgrp.attrs[k] = v
+                        elif isinstance(value, (int, float, np.number)):
+                            grp.attrs[key] = float(value) if isinstance(value, np.floating) else value
+                        elif isinstance(value, str):
+                            grp.attrs[key] = value
+                        elif isinstance(value, np.ndarray):
+                            grp.create_dataset(key, data=value)
+
+            click.echo(f"\nAnalysis saved to {output_path}")
 
 
 if __name__ == '__main__':

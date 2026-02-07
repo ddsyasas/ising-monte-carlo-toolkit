@@ -469,6 +469,215 @@ class TestBenchmarkCommand:
 
 
 # ============================================================================
+# Tests for analyze command
+# ============================================================================
+
+class TestAnalyzeCommand:
+    """Tests for analyze command."""
+
+    def test_analyze_help(self, runner):
+        """Test analyze --help works."""
+        result = runner.invoke(main, ['analyze', '--help'])
+
+        assert result.exit_code == 0
+        assert '--observables' in result.output
+        assert '--bootstrap' in result.output
+        assert '--format' in result.output
+        assert 'INPUT' in result.output
+
+    def test_analyze_single_file(self, runner, temp_dir):
+        """Test analyzing a single simulation result."""
+        # First run a simulation
+        output_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(output_file),
+        ])
+        assert result.exit_code == 0
+
+        # Now analyze it
+        result = runner.invoke(main, [
+            'analyze',
+            str(output_file),
+        ])
+
+        assert result.exit_code == 0
+        assert 'Analysis Results' in result.output
+        assert 'energy' in result.output.lower()
+
+    def test_analyze_sweep_file(self, runner, temp_dir):
+        """Test analyzing a sweep result."""
+        # First run a sweep
+        sweep_dir = temp_dir / 'sweep_data'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(sweep_dir),
+            '-f', 'npz',
+        ])
+        assert result.exit_code == 0
+
+        # Find the NPZ file
+        npz_files = list(sweep_dir.glob('*.npz'))
+        assert len(npz_files) >= 1
+
+        # Analyze
+        result = runner.invoke(main, [
+            'analyze',
+            str(npz_files[0]),
+        ])
+
+        assert result.exit_code == 0
+        assert 'Analysis Results' in result.output
+
+    def test_analyze_directory(self, runner, temp_dir):
+        """Test analyzing all files in a directory."""
+        # Create sweep data
+        sweep_dir = temp_dir / 'sweep_data'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(sweep_dir),
+            '-f', 'npz',
+        ])
+        assert result.exit_code == 0
+
+        # Analyze directory
+        result = runner.invoke(main, [
+            'analyze',
+            str(sweep_dir),
+        ])
+
+        assert result.exit_code == 0
+        assert 'Analysis Results' in result.output
+
+    def test_analyze_specific_observables(self, runner, temp_dir):
+        """Test analyzing specific observables."""
+        # First run a simulation
+        output_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(output_file),
+        ])
+        assert result.exit_code == 0
+
+        # Analyze specific observables
+        result = runner.invoke(main, [
+            'analyze',
+            str(output_file),
+            '--observables', 'energy,magnetization',
+        ])
+
+        assert result.exit_code == 0
+        assert 'energy' in result.output.lower()
+        assert 'magnetization' in result.output.lower()
+
+    def test_analyze_with_output_csv(self, runner, temp_dir):
+        """Test saving analysis to CSV."""
+        # First run a simulation
+        results_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(results_file),
+        ])
+        assert result.exit_code == 0
+
+        # Analyze and save
+        analysis_file = temp_dir / 'analysis.csv'
+        result = runner.invoke(main, [
+            'analyze',
+            str(results_file),
+            '-o', str(analysis_file),
+            '-f', 'csv',
+        ])
+
+        assert result.exit_code == 0
+        assert analysis_file.exists()
+
+        # Verify CSV content
+        content = analysis_file.read_text()
+        assert 'source' in content
+        assert 'energy_mean' in content
+
+    def test_analyze_with_output_json(self, runner, temp_dir):
+        """Test saving analysis to JSON."""
+        import json
+
+        # First run a simulation
+        results_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(results_file),
+        ])
+        assert result.exit_code == 0
+
+        # Analyze and save as JSON
+        analysis_file = temp_dir / 'analysis.json'
+        result = runner.invoke(main, [
+            'analyze',
+            str(results_file),
+            '-o', str(analysis_file),
+            '-f', 'json',
+        ])
+
+        assert result.exit_code == 0
+        assert analysis_file.exists()
+
+        # Verify JSON content
+        with open(analysis_file) as f:
+            data = json.load(f)
+        assert 'results' in data
+        assert 'observables' in data
+
+    def test_analyze_missing_file(self, runner):
+        """Test error for missing input file."""
+        result = runner.invoke(main, [
+            'analyze',
+            'nonexistent.npz',
+        ])
+
+        assert result.exit_code != 0
+
+
+# ============================================================================
 # Integration Tests
 # ============================================================================
 
