@@ -391,11 +391,14 @@ class TestPlotCommand:
         result = runner.invoke(main, ['plot', '--help'])
 
         assert result.exit_code == 0
+        assert '--type' in result.output
         assert '--observable' in result.output
-        assert 'INPUT_FILE' in result.output
+        assert '--style' in result.output
+        assert '--format' in result.output
+        assert 'INPUT' in result.output
 
-    def test_plot_sweep_results(self, runner, temp_dir):
-        """Test plotting sweep results."""
+    def test_plot_phase_diagram(self, runner, temp_dir):
+        """Test plotting phase diagram from sweep results."""
         pytest.importorskip("matplotlib")
 
         # First create sweep data
@@ -421,12 +424,149 @@ class TestPlotCommand:
         assert len(npz_files) >= 1
         sweep_file = npz_files[0]
 
-        # Now plot
-        plot_file = temp_dir / 'plot.png'
+        # Create phase diagram
+        plot_file = temp_dir / 'phase_diagram.pdf'
         result = runner.invoke(main, [
             'plot',
             str(sweep_file),
+            '--type', 'phase_diagram',
+            '--output', str(plot_file),
+        ])
+
+        assert result.exit_code == 0
+        assert plot_file.exists()
+
+    def test_plot_timeseries(self, runner, temp_dir):
+        """Test plotting time series."""
+        pytest.importorskip("matplotlib")
+
+        # First run a simulation
+        results_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(results_file),
+        ])
+
+        assert result.exit_code == 0
+
+        # Plot time series
+        plot_file = temp_dir / 'timeseries.png'
+        result = runner.invoke(main, [
+            'plot',
+            str(results_file),
+            '--type', 'timeseries',
+            '--observable', 'energy',
+            '--output', str(plot_file),
+            '--format', 'png',
+        ])
+
+        assert result.exit_code == 0
+        assert plot_file.exists()
+
+    def test_plot_snapshot(self, runner, temp_dir):
+        """Test plotting spin snapshot."""
+        pytest.importorskip("matplotlib")
+
+        # First run a simulation with spin saving
+        results_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(results_file),
+            '--save-spins',
+        ])
+
+        assert result.exit_code == 0
+
+        # Plot snapshot
+        plot_file = temp_dir / 'snapshot.png'
+        result = runner.invoke(main, [
+            'plot',
+            str(results_file),
+            '--type', 'snapshot',
+            '--output', str(plot_file),
+            '--format', 'png',
+        ])
+
+        assert result.exit_code == 0
+        assert plot_file.exists()
+
+    def test_plot_autocorrelation(self, runner, temp_dir):
+        """Test plotting autocorrelation."""
+        pytest.importorskip("matplotlib")
+
+        # First run a simulation
+        results_file = temp_dir / 'results.npz'
+
+        result = runner.invoke(main, [
+            'run',
+            '-m', 'ising2d',
+            '-L', '8',
+            '-T', '2.269',
+            '-n', '1000',
+            '-e', '100',
+            '-o', str(results_file),
+        ])
+
+        assert result.exit_code == 0
+
+        # Plot autocorrelation
+        plot_file = temp_dir / 'autocorr.pdf'
+        result = runner.invoke(main, [
+            'plot',
+            str(results_file),
+            '--type', 'autocorrelation',
             '--observable', 'magnetization',
+            '--output', str(plot_file),
+        ])
+
+        assert result.exit_code == 0
+        assert plot_file.exists()
+
+    def test_plot_styles(self, runner, temp_dir):
+        """Test different plot styles."""
+        pytest.importorskip("matplotlib")
+
+        # Create sweep data
+        sweep_dir = temp_dir / 'sweep_data'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(sweep_dir),
+            '-f', 'npz',
+        ])
+
+        assert result.exit_code == 0
+
+        npz_files = list(sweep_dir.glob('*.npz'))
+        sweep_file = npz_files[0]
+
+        # Test presentation style
+        plot_file = temp_dir / 'presentation.png'
+        result = runner.invoke(main, [
+            'plot',
+            str(sweep_file),
+            '--type', 'phase_diagram',
+            '--style', 'presentation',
+            '--format', 'png',
             '--output', str(plot_file),
         ])
 
@@ -438,9 +578,45 @@ class TestPlotCommand:
         result = runner.invoke(main, [
             'plot',
             'nonexistent.npz',
+            '--type', 'phase_diagram',
         ])
 
         assert result.exit_code != 0
+
+    def test_plot_auto_filename(self, runner, temp_dir):
+        """Test auto-generated output filename."""
+        pytest.importorskip("matplotlib")
+
+        # Create sweep data
+        sweep_dir = temp_dir / 'sweep_data'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(sweep_dir),
+            '-f', 'npz',
+        ])
+
+        assert result.exit_code == 0
+
+        npz_files = list(sweep_dir.glob('*.npz'))
+        sweep_file = npz_files[0]
+
+        # Plot without specifying output (should auto-generate)
+        result = runner.invoke(main, [
+            'plot',
+            str(sweep_file),
+            '--type', 'phase_diagram',
+        ])
+
+        assert result.exit_code == 0
+        assert 'saved to' in result.output.lower()
 
 
 # ============================================================================
@@ -734,15 +910,14 @@ class TestCLIIntegration:
         assert len(npz_files) >= 1
         sweep_file = npz_files[0]
 
-        # Plot each observable
-        for obs in ['energy', 'magnetization', 'susceptibility']:
-            plot_file = temp_dir / f'{obs}.png'
-            result = runner.invoke(main, [
-                'plot',
-                str(sweep_file),
-                '-O', obs,
-                '-o', str(plot_file),
-            ])
+        # Create phase diagram plot
+        plot_file = temp_dir / 'phase_diagram.pdf'
+        result = runner.invoke(main, [
+            'plot',
+            str(sweep_file),
+            '--type', 'phase_diagram',
+            '-o', str(plot_file),
+        ])
 
-            assert result.exit_code == 0
-            assert plot_file.exists()
+        assert result.exit_code == 0
+        assert plot_file.exists()

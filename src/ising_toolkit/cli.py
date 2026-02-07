@@ -1073,80 +1073,580 @@ def info(model):
     click.echo("\n" + "="*50)
 
 
+def _generate_plot_filename(input_path: Path, plot_type: str, observable: str,
+                            format: str) -> str:
+    """Generate auto-named output filename for plots.
+
+    Parameters
+    ----------
+    input_path : Path
+        Input file or directory path
+    plot_type : str
+        Type of plot being generated
+    observable : str
+        Observable name (for relevant plot types)
+    format : str
+        Output format (png, pdf, svg)
+
+    Returns
+    -------
+    str
+        Generated filename
+    """
+    stem = input_path.stem if input_path.is_file() else input_path.name
+
+    if plot_type in ['timeseries', 'autocorrelation']:
+        return f"{stem}_{plot_type}_{observable}.{format}"
+    else:
+        return f"{stem}_{plot_type}.{format}"
+
+
+def _apply_plot_style(style: str):
+    """Apply matplotlib style settings.
+
+    Parameters
+    ----------
+    style : str
+        Style name: 'publication', 'presentation', or 'default'
+    """
+    import matplotlib.pyplot as plt
+
+    if style == 'publication':
+        plt.rcParams.update({
+            'font.size': 10,
+            'font.family': 'serif',
+            'axes.labelsize': 11,
+            'axes.titlesize': 12,
+            'xtick.labelsize': 9,
+            'ytick.labelsize': 9,
+            'legend.fontsize': 9,
+            'figure.figsize': (6, 4.5),
+            'axes.linewidth': 0.8,
+            'lines.linewidth': 1.2,
+            'lines.markersize': 4,
+            'savefig.bbox': 'tight',
+            'savefig.pad_inches': 0.05,
+        })
+    elif style == 'presentation':
+        plt.rcParams.update({
+            'font.size': 14,
+            'font.family': 'sans-serif',
+            'axes.labelsize': 16,
+            'axes.titlesize': 18,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'legend.fontsize': 12,
+            'figure.figsize': (10, 7),
+            'axes.linewidth': 1.5,
+            'lines.linewidth': 2.5,
+            'lines.markersize': 8,
+            'savefig.bbox': 'tight',
+        })
+    else:  # default
+        plt.rcdefaults()
+
+
 @main.command()
-@click.argument('input_file', type=click.Path(exists=True))
+@click.argument('input', type=click.Path(exists=True))
+@click.option('--type', 'plot_type',
+              type=click.Choice(['phase_diagram', 'timeseries', 'snapshot',
+                                'animation', 'binder', 'autocorrelation']),
+              required=True,
+              help='Type of visualization to generate')
 @click.option('--observable', '-O',
-              type=click.Choice(['energy', 'magnetization', 'heat_capacity', 'susceptibility']),
+              type=str,
               default='magnetization',
-              help='Observable to plot')
+              help='Observable for timeseries/autocorrelation plots')
 @click.option('--output', '-o',
               type=click.Path(),
               default=None,
-              help='Output image file')
-def plot(input_file, observable, output):
-    """Plot results from a sweep simulation.
+              help='Output file path (auto-generated if not specified)')
+@click.option('--format', '-f',
+              type=click.Choice(['png', 'pdf', 'svg']),
+              default='pdf',
+              show_default=True,
+              help='Output file format')
+@click.option('--style', '-s',
+              type=click.Choice(['publication', 'presentation', 'default']),
+              default='publication',
+              show_default=True,
+              help='Plot style preset')
+@click.option('--dpi',
+              type=int,
+              default=300,
+              show_default=True,
+              help='Resolution for raster formats')
+@click.option('-v', '--verbose',
+              is_flag=True,
+              help='Verbose output')
+def plot(input, plot_type, observable, output, format, style, dpi, verbose):
+    """Generate visualizations from simulation results.
+
+    Creates various types of plots from simulation data files or directories.
+
+    Plot types:
+
+    \b
+    - phase_diagram: Temperature dependence of observables from sweep data
+    - timeseries: Time series of observable from single simulation
+    - snapshot: Spin configuration snapshot
+    - animation: Animated spin evolution (outputs GIF/MP4)
+    - binder: Binder cumulant crossing for critical point estimation
+    - autocorrelation: Autocorrelation function of observable
 
     Examples:
 
-        ising-sim plot sweep.npz --observable magnetization
-        ising-sim plot sweep.npz -O susceptibility -o chi_vs_T.png
+    \b
+        # Phase diagram from sweep results
+        ising-sim plot sweep.npz --type phase_diagram
+
+    \b
+        # Time series from single run
+        ising-sim plot results.npz --type timeseries --observable energy
+
+    \b
+        # Spin configuration snapshot
+        ising-sim plot results.npz --type snapshot
+
+    \b
+        # Publication-quality PDF
+        ising-sim plot sweep.npz --type phase_diagram -f pdf -s publication
+
+    \b
+        # Presentation slides
+        ising-sim plot sweep.npz --type phase_diagram -s presentation -f png
     """
     try:
         import matplotlib
         matplotlib.use('Agg')  # Non-interactive backend
         import matplotlib.pyplot as plt
     except ImportError:
-        raise click.ClickException("matplotlib required for plotting")
+        raise click.ClickException("matplotlib required for plotting. Install with: pip install matplotlib")
+
+    input_path = Path(input)
+
+    # Apply style
+    _apply_plot_style(style)
+
+    if verbose:
+        click.echo(f"Input: {input_path}")
+        click.echo(f"Plot type: {plot_type}")
+        click.echo(f"Style: {style}")
+
+    # Generate output filename if not specified
+    if output is None:
+        # For animation, use appropriate extension
+        if plot_type == 'animation':
+            output = _generate_plot_filename(input_path, plot_type, observable, 'gif')
+        else:
+            output = _generate_plot_filename(input_path, plot_type, observable, format)
+
+    output_path = Path(output)
 
     # Load data
-    data = np.load(input_file, allow_pickle=True)
+    try:
+        loaded = load_results_from_path(input)
+    except Exception as e:
+        raise click.ClickException(f"Failed to load data: {e}")
 
-    if 'temperatures' not in data:
-        raise click.ClickException("Input file must be from a sweep simulation")
+    data = loaded['data']
+    result_type = loaded['type']
 
-    temps = data['temperatures']
+    if verbose:
+        click.echo(f"Data type: {result_type}")
 
-    observable_map = {
-        'energy': ('energies', 'Energy per spin (E/N)'),
-        'magnetization': ('magnetizations', '|Magnetization| per spin (|M|/N)'),
-        'heat_capacity': ('heat_capacities', 'Heat capacity (C/N)'),
-        'susceptibility': ('susceptibilities', 'Susceptibility (χ/N)'),
+    # Route to appropriate plot function
+    if plot_type == 'phase_diagram':
+        _plot_phase_diagram(data, result_type, loaded, output_path, format, dpi, verbose)
+
+    elif plot_type == 'timeseries':
+        _plot_timeseries(data, result_type, observable, output_path, format, dpi, verbose)
+
+    elif plot_type == 'snapshot':
+        _plot_snapshot(data, result_type, output_path, format, dpi, verbose)
+
+    elif plot_type == 'animation':
+        _create_animation(data, result_type, input_path, output_path, verbose)
+
+    elif plot_type == 'binder':
+        _plot_binder(data, result_type, loaded, output_path, format, dpi, verbose)
+
+    elif plot_type == 'autocorrelation':
+        _plot_autocorrelation(data, result_type, observable, output_path, format, dpi, verbose)
+
+    click.echo(f"Plot saved to {output_path}")
+
+
+def _plot_phase_diagram(data, result_type, loaded, output_path, format, dpi, verbose):
+    """Create phase diagram plot from sweep data."""
+    import matplotlib.pyplot as plt
+
+    if result_type == 'multi':
+        # Multiple files - aggregate by size
+        all_data = {}
+        for result in data:
+            size = result['data'].get('size', 0)
+            if size not in all_data:
+                all_data[size] = result['data']
+
+        if not all_data:
+            raise click.ClickException("No valid sweep data found")
+
+        fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+
+        observables = [
+            ('energies', 'Energy per spin (E/N)'),
+            ('magnetizations', '|M|/N'),
+            ('heat_capacities', 'Heat capacity (C)'),
+            ('susceptibilities', 'Susceptibility (χ)'),
+        ]
+
+        for ax, (key, ylabel) in zip(axes.flat, observables):
+            for size in sorted(all_data.keys()):
+                d = all_data[size]
+                if 'temperatures' in d and key in d:
+                    ax.plot(d['temperatures'], d[key], 'o-', label=f'L={size}', markersize=3)
+
+            ax.set_xlabel('Temperature (T)')
+            ax.set_ylabel(ylabel)
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        plt.suptitle('Phase Diagram', fontsize=14)
+        plt.tight_layout()
+
+    elif result_type == 'sweep':
+        # Single sweep file
+        if 'temperatures' not in data:
+            raise click.ClickException("Input must contain sweep data with temperatures")
+
+        temps = data['temperatures']
+        size = data.get('size', '?')
+
+        fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+
+        observables = [
+            ('energies', 'Energy per spin (E/N)'),
+            ('magnetizations', '|M|/N'),
+            ('heat_capacities', 'Heat capacity (C)'),
+            ('susceptibilities', 'Susceptibility (χ)'),
+        ]
+
+        for ax, (key, ylabel) in zip(axes.flat, observables):
+            if key in data:
+                ax.plot(temps, data[key], 'o-', markersize=4, color='C0')
+
+                # Mark peaks for susceptibility/heat capacity
+                if key in ['susceptibilities', 'heat_capacities']:
+                    idx_peak = np.argmax(data[key])
+                    ax.axvline(temps[idx_peak], color='red', linestyle='--', alpha=0.7)
+                    ax.annotate(f'T={temps[idx_peak]:.3f}',
+                               xy=(temps[idx_peak], data[key][idx_peak]),
+                               xytext=(5, 5), textcoords='offset points', fontsize=8)
+
+            ax.set_xlabel('Temperature (T)')
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+
+        plt.suptitle(f'Phase Diagram (L={size})', fontsize=14)
+        plt.tight_layout()
+
+    else:
+        raise click.ClickException("phase_diagram requires sweep data")
+
+    plt.savefig(output_path, format=format, dpi=dpi)
+    plt.close()
+
+
+def _plot_timeseries(data, result_type, observable, output_path, format, dpi, verbose):
+    """Create time series plot."""
+    import matplotlib.pyplot as plt
+
+    observable_keys = {
+        'energy': 'energies',
+        'magnetization': 'magnetizations',
     }
 
-    key, ylabel = observable_map[observable]
+    key = observable_keys.get(observable, observable + 's')
 
     if key not in data:
-        raise click.ClickException(f"Observable '{observable}' not found in file")
+        # Try without 's'
+        key = observable_keys.get(observable, observable)
+        if key not in data:
+            raise click.ClickException(f"Observable '{observable}' not found in data")
 
-    values = data[key]
+    values = np.asarray(data[key])
 
-    # Create plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(temps, values, 'o-', markersize=4)
-    ax.set_xlabel('Temperature (T)', fontsize=12)
-    ax.set_ylabel(ylabel, fontsize=12)
-    ax.set_title(f"{observable.replace('_', ' ').title()} vs Temperature", fontsize=14)
-    ax.grid(True, alpha=0.3)
+    if values.ndim == 0 or len(values) < 2:
+        raise click.ClickException(f"Not enough time series data for '{observable}'")
 
-    # Mark peak for susceptibility/heat capacity
-    if observable in ['susceptibility', 'heat_capacity']:
-        idx_max = np.argmax(values)
-        ax.axvline(temps[idx_max], color='red', linestyle='--', alpha=0.7,
-                   label=f'Peak at T={temps[idx_max]:.3f}')
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    steps = np.arange(len(values))
+    ax.plot(steps, values, '-', linewidth=0.5, alpha=0.8)
+
+    # Add running mean
+    if len(values) > 100:
+        window = min(len(values) // 20, 100)
+        running_mean = np.convolve(values, np.ones(window)/window, mode='valid')
+        ax.plot(steps[window//2:window//2+len(running_mean)], running_mean,
+                '-', linewidth=2, color='red', label=f'Running mean (window={window})')
         ax.legend()
 
+    ax.set_xlabel('MC Step')
+    ax.set_ylabel(observable.replace('_', ' ').title())
+    ax.set_title(f'Time Series: {observable.replace("_", " ").title()}')
+    ax.grid(True, alpha=0.3)
+
     plt.tight_layout()
-
-    if output is not None:
-        plt.savefig(output, dpi=150)
-        click.echo(f"Plot saved to {output}")
-    else:
-        # Save to default location
-        default_output = Path(input_file).stem + f"_{observable}.png"
-        plt.savefig(default_output, dpi=150)
-        click.echo(f"Plot saved to {default_output}")
-
+    plt.savefig(output_path, format=format, dpi=dpi)
     plt.close()
+
+
+def _plot_snapshot(data, result_type, output_path, format, dpi, verbose):
+    """Plot spin configuration snapshot."""
+    import matplotlib.pyplot as plt
+
+    if 'spins' not in data:
+        raise click.ClickException("No spin configuration found. Run simulation with --save-spins")
+
+    spins = np.asarray(data['spins'])
+
+    if spins.ndim == 1:
+        # 1D configuration
+        fig, ax = plt.subplots(figsize=(12, 2))
+        colors = ['white' if s == 1 else 'black' for s in spins]
+        ax.bar(range(len(spins)), np.ones(len(spins)), color=colors, edgecolor='gray', width=1)
+        ax.set_xlim(-0.5, len(spins) - 0.5)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel('Site')
+        ax.set_yticks([])
+        ax.set_title(f'1D Spin Configuration (L={len(spins)})')
+
+    elif spins.ndim == 2:
+        # 2D configuration
+        fig, ax = plt.subplots(figsize=(8, 8))
+        im = ax.imshow(spins, cmap='binary', interpolation='nearest',
+                       vmin=-1, vmax=1)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_title(f'2D Spin Configuration ({spins.shape[0]}×{spins.shape[1]})')
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar.set_ticks([-1, 1])
+        cbar.set_ticklabels(['↓', '↑'])
+
+    elif spins.ndim == 3:
+        # 3D configuration - show slices
+        n_slices = min(4, spins.shape[2])
+        fig, axes = plt.subplots(1, n_slices, figsize=(3*n_slices, 3))
+
+        if n_slices == 1:
+            axes = [axes]
+
+        slice_indices = np.linspace(0, spins.shape[2]-1, n_slices, dtype=int)
+
+        for ax, z in zip(axes, slice_indices):
+            ax.imshow(spins[:, :, z], cmap='binary', interpolation='nearest',
+                     vmin=-1, vmax=1)
+            ax.set_title(f'z={z}')
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        plt.suptitle(f'3D Spin Configuration ({spins.shape[0]}×{spins.shape[1]}×{spins.shape[2]})')
+
+    else:
+        raise click.ClickException(f"Unsupported spin configuration dimensions: {spins.ndim}")
+
+    plt.tight_layout()
+    plt.savefig(output_path, format=format, dpi=dpi)
+    plt.close()
+
+
+def _create_animation(data, result_type, input_path, output_path, verbose):
+    """Create spin evolution animation."""
+    try:
+        from ising_toolkit.visualization.animation import create_spin_animation
+    except ImportError:
+        raise click.ClickException("Animation module not available")
+
+    # Check if we have spin configurations
+    if 'spins' not in data:
+        raise click.ClickException("No spin configuration found. Animation requires spin data.")
+
+    # For a single snapshot, we can't animate
+    # This would require running a simulation to generate frames
+    click.echo("Note: Animation requires running a simulation. Creating from available data...")
+
+    # Try to use the visualization module directly
+    try:
+        from ising_toolkit.models import Ising2D
+        from ising_toolkit.samplers import MetropolisSampler
+
+        # Get parameters from data
+        size = data.get('size', 16)
+        temperature = data.get('temperature', 2.269)
+
+        if verbose:
+            click.echo(f"Creating animation: L={size}, T={temperature}")
+
+        # Create model and run short simulation for animation
+        model = Ising2D(size=size, temperature=temperature)
+
+        # Set initial state from data if available
+        if 'spins' in data:
+            spins = np.asarray(data['spins'])
+            if spins.shape == model.spins.shape:
+                model._spins = spins.copy()
+
+        sampler = MetropolisSampler(model)
+
+        # Create animation
+        output_str = str(output_path)
+        create_spin_animation(
+            model=model,
+            sampler=sampler,
+            n_frames=100,
+            steps_per_frame=10,
+            output_path=output_str,
+            interval=100,
+        )
+
+    except Exception as e:
+        raise click.ClickException(f"Failed to create animation: {e}")
+
+
+def _plot_binder(data, result_type, loaded, output_path, format, dpi, verbose):
+    """Plot Binder cumulant crossing."""
+    import matplotlib.pyplot as plt
+
+    if result_type != 'multi':
+        raise click.ClickException("Binder plot requires multiple sweep files for different sizes")
+
+    # Collect data by size
+    all_data = {}
+    for result in data:
+        size = result['data'].get('size', 0)
+        if size > 0 and 'temperatures' in result['data']:
+            all_data[size] = result['data']
+
+    if len(all_data) < 2:
+        raise click.ClickException("Binder plot requires at least 2 different sizes")
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Calculate Binder cumulant for each size
+    for size in sorted(all_data.keys()):
+        d = all_data[size]
+        temps = d['temperatures']
+
+        # Binder cumulant: U = 1 - <m^4>/(3<m^2>^2)
+        # We need magnetization time series or moments
+        if 'magnetizations' in d:
+            mags = d['magnetizations']
+            # Approximate Binder from mean magnetization
+            # This is a simplified version - proper calculation needs full distribution
+            m2 = mags**2
+            m4 = mags**4
+
+            # For illustration, use simplified formula
+            binder = 1 - m4 / (3 * m2**2 + 1e-10)
+
+            ax.plot(temps, binder, 'o-', label=f'L={size}', markersize=4)
+
+    ax.set_xlabel('Temperature (T)')
+    ax.set_ylabel('Binder Cumulant (U)')
+    ax.set_title('Binder Cumulant Crossing')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Add horizontal line at critical value (2/3 for 2D Ising)
+    ax.axhline(y=2/3, color='gray', linestyle=':', alpha=0.7, label='U* = 2/3')
+
+    plt.tight_layout()
+    plt.savefig(output_path, format=format, dpi=dpi)
+    plt.close()
+
+
+def _plot_autocorrelation(data, result_type, observable, output_path, format, dpi, verbose):
+    """Plot autocorrelation function."""
+    import matplotlib.pyplot as plt
+
+    observable_keys = {
+        'energy': 'energies',
+        'magnetization': 'magnetizations',
+    }
+
+    key = observable_keys.get(observable, observable + 's')
+
+    if key not in data:
+        key = observable_keys.get(observable, observable)
+        if key not in data:
+            raise click.ClickException(f"Observable '{observable}' not found in data")
+
+    values = np.asarray(data[key])
+
+    if len(values) < 10:
+        raise click.ClickException("Not enough data points for autocorrelation analysis")
+
+    # Compute autocorrelation
+    n = len(values)
+    mean = np.mean(values)
+    var = np.var(values)
+
+    if var < 1e-10:
+        raise click.ClickException("Variance too small for autocorrelation analysis")
+
+    # Compute autocorrelation function
+    max_lag = min(n // 4, 1000)
+    autocorr = np.zeros(max_lag)
+
+    centered = values - mean
+    for lag in range(max_lag):
+        if lag < n:
+            autocorr[lag] = np.mean(centered[:n-lag] * centered[lag:]) / var
+
+    # Find integrated autocorrelation time
+    # Use automatic windowing (Sokal's method)
+    tau_int = 0.5
+    for t in range(1, max_lag):
+        tau_int += autocorr[t]
+        if t >= 6 * tau_int:  # Sokal's window
+            break
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    lags = np.arange(max_lag)
+    ax.plot(lags, autocorr, '-', linewidth=1)
+    ax.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
+
+    # Mark exponential decay region
+    ax.axhline(y=np.exp(-1), color='red', linestyle='--', alpha=0.7,
+               label=f'e⁻¹ level')
+
+    # Find where autocorrelation crosses 1/e
+    cross_idx = np.where(autocorr < np.exp(-1))[0]
+    if len(cross_idx) > 0:
+        tau_exp = cross_idx[0]
+        ax.axvline(x=tau_exp, color='green', linestyle=':', alpha=0.7,
+                   label=f'τ_exp ≈ {tau_exp}')
+
+    ax.set_xlabel('Lag (MC steps)')
+    ax.set_ylabel('Autocorrelation C(t)')
+    ax.set_title(f'Autocorrelation: {observable.replace("_", " ").title()}\n'
+                 f'τ_int ≈ {tau_int:.1f}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, max_lag)
+    ax.set_ylim(-0.1, 1.1)
+
+    plt.tight_layout()
+    plt.savefig(output_path, format=format, dpi=dpi)
+    plt.close()
+
+    if verbose:
+        click.echo(f"Integrated autocorrelation time: τ_int ≈ {tau_int:.2f}")
 
 
 @main.command()
