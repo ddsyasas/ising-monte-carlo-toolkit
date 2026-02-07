@@ -23,8 +23,8 @@ def main():
         # Run a 2D simulation at critical temperature
         ising-sim run --model ising2d --size 32 --temperature 2.269
 
-        # Temperature sweep
-        ising-sim sweep --model ising2d --size 32 --t-min 1.5 --t-max 3.5 --n-temps 20
+        # Temperature sweep for phase diagram
+        ising-sim sweep -m ising2d -L 16 -L 32 --temp-start 1.5 --temp-end 3.5 -o results/
 
         # Show info about a model
         ising-sim info --model ising2d
@@ -234,69 +234,48 @@ def run(model, size, temperature, steps, equilibration, algorithm,
         click.echo(f"\nResults saved to {output_path}")
 
 
-@main.command()
-@click.option('--model', '-m',
-              type=click.Choice(['ising1d', 'ising2d', 'ising3d']),
-              required=True,
-              help='Model type')
-@click.option('--size', '-L',
-              type=int,
-              required=True,
-              help='Lattice size')
-@click.option('--t-min',
-              type=float,
-              required=True,
-              help='Minimum temperature')
-@click.option('--t-max',
-              type=float,
-              required=True,
-              help='Maximum temperature')
-@click.option('--n-temps',
-              type=int,
-              default=20,
-              show_default=True,
-              help='Number of temperature points')
-@click.option('--steps', '-n',
-              type=int,
-              default=50000,
-              show_default=True,
-              help='MC steps per temperature')
-@click.option('--equilibration', '-e',
-              type=int,
-              default=5000,
-              show_default=True,
-              help='Equilibration steps')
-@click.option('--algorithm', '-a',
-              type=click.Choice(['metropolis', 'wolff']),
-              default='metropolis',
-              show_default=True,
-              help='Sampling algorithm')
-@click.option('--output', '-o',
-              type=click.Path(),
-              default=None,
-              help='Output file path')
-@click.option('-v', '--verbose',
-              is_flag=True,
-              help='Verbose output')
-def sweep(model, size, t_min, t_max, n_temps, steps, equilibration,
-          algorithm, output, verbose):
-    """Run temperature sweep simulation.
+def _generate_sweep_filename(model: str, size: int, temp_start: float,
+                             temp_end: float, algorithm: str) -> str:
+    """Generate default filename for sweep results.
 
-    Performs simulations at multiple temperatures to map out
-    the phase transition.
+    Parameters
+    ----------
+    model : str
+        Model type (e.g., 'ising2d')
+    size : int
+        Lattice size
+    temp_start : float
+        Start temperature
+    temp_end : float
+        End temperature
+    algorithm : str
+        Sampling algorithm
 
-    Examples:
+    Returns
+    -------
+    str
+        Default filename without extension
+    """
+    return f"{model}_L{size}_T{temp_start:.2f}-{temp_end:.2f}_{algorithm}"
 
-        # Sweep around 2D critical point
-        ising-sim sweep -m ising2d -L 32 --t-min 1.5 --t-max 3.5 --n-temps 30
 
-        # Save results
-        ising-sim sweep -m ising2d -L 32 --t-min 1.5 --t-max 3.5 -o sweep.npz
+def _run_single_sweep(args):
+    """Run a single temperature sweep for one size (worker function for parallel).
+
+    Parameters
+    ----------
+    args : tuple
+        (model_name, size, temperatures, steps, equilibration, algorithm)
+
+    Returns
+    -------
+    dict
+        Results dictionary with temperatures and observables
     """
     from ising_toolkit.models import Ising1D, Ising2D, Ising3D
     from ising_toolkit.samplers import MetropolisSampler, WolffSampler
 
-    temperatures = np.linspace(t_min, t_max, n_temps)
+    model_name, size, temperatures, steps, equilibration, algorithm = args
 
     model_classes = {
         'ising1d': Ising1D,
@@ -304,99 +283,393 @@ def sweep(model, size, t_min, t_max, n_temps, steps, equilibration,
         'ising3d': Ising3D,
     }
 
-    click.echo(f"\nTemperature Sweep: {model}, L={size}")
-    click.echo(f"T range: [{t_min}, {t_max}], {n_temps} points")
-    click.echo(f"Algorithm: {algorithm}, steps: {steps}\n")
-
     results = {
         'temperatures': [],
         'energies': [],
+        'energy_stds': [],
         'magnetizations': [],
+        'magnetization_stds': [],
         'heat_capacities': [],
         'susceptibilities': [],
     }
 
-    with click.progressbar(temperatures, label='Sweeping') as temps:
-        for T in temps:
-            # Create model
-            model_instance = model_classes[model](size=size, temperature=T)
+    for T in temperatures:
+        # Create model
+        model_instance = model_classes[model_name](size=size, temperature=T)
 
-            # Create sampler
-            if algorithm == 'metropolis':
-                sampler = MetropolisSampler(model_instance)
-            else:
-                sampler = WolffSampler(model_instance)
+        # Create sampler
+        if algorithm == 'metropolis':
+            sampler = MetropolisSampler(model_instance)
+        else:
+            sampler = WolffSampler(model_instance)
 
-            # Equilibration
-            for _ in range(equilibration):
-                sampler.step()
+        # Equilibration
+        for _ in range(equilibration):
+            sampler.step()
 
-            # Production
-            energies = []
-            magnetizations = []
+        # Production
+        energies = []
+        magnetizations = []
 
-            for i in range(steps):
-                sampler.step()
-                if i % 10 == 0:
-                    energies.append(model_instance.get_energy() / model_instance.n_spins)
-                    magnetizations.append(
-                        np.abs(model_instance.get_magnetization()) / model_instance.n_spins
-                    )
+        for i in range(steps):
+            sampler.step()
+            if i % 10 == 0:
+                energies.append(model_instance.get_energy() / model_instance.n_spins)
+                magnetizations.append(
+                    np.abs(model_instance.get_magnetization()) / model_instance.n_spins
+                )
 
-            energies = np.array(energies)
-            magnetizations = np.array(magnetizations)
+        energies = np.array(energies)
+        magnetizations = np.array(magnetizations)
 
-            E_mean = np.mean(energies)
-            M_mean = np.mean(magnetizations)
-            C = (1 / T**2) * np.var(energies) * model_instance.n_spins
-            chi = (1 / T) * np.var(magnetizations) * model_instance.n_spins
+        E_mean = np.mean(energies)
+        E_std = np.std(energies)
+        M_mean = np.mean(magnetizations)
+        M_std = np.std(magnetizations)
+        C = (1 / T**2) * np.var(energies) * model_instance.n_spins
+        chi = (1 / T) * np.var(magnetizations) * model_instance.n_spins
 
-            results['temperatures'].append(T)
-            results['energies'].append(E_mean)
-            results['magnetizations'].append(M_mean)
-            results['heat_capacities'].append(C)
-            results['susceptibilities'].append(chi)
+        results['temperatures'].append(T)
+        results['energies'].append(E_mean)
+        results['energy_stds'].append(E_std)
+        results['magnetizations'].append(M_mean)
+        results['magnetization_stds'].append(M_std)
+        results['heat_capacities'].append(C)
+        results['susceptibilities'].append(chi)
 
     # Convert to arrays
     for key in results:
         results[key] = np.array(results[key])
 
+    return results
+
+
+@main.command()
+@click.option('--model', '-m',
+              type=click.Choice(['ising1d', 'ising2d', 'ising3d']),
+              required=True,
+              help='Model type')
+@click.option('--size', '-L',
+              type=int,
+              multiple=True,
+              required=True,
+              help='Lattice size(s) - can specify multiple')
+@click.option('--temp-start',
+              type=float,
+              required=True,
+              help='Start temperature')
+@click.option('--temp-end',
+              type=float,
+              required=True,
+              help='End temperature')
+@click.option('--temp-steps',
+              type=int,
+              default=50,
+              show_default=True,
+              help='Number of temperature points')
+@click.option('--steps', '-n',
+              type=int,
+              default=100000,
+              show_default=True,
+              help='MC steps per temperature')
+@click.option('--equilibration', '-e',
+              type=int,
+              default=10000,
+              show_default=True,
+              help='Equilibration steps')
+@click.option('--algorithm', '-a',
+              type=click.Choice(['metropolis', 'wolff']),
+              default='metropolis',
+              show_default=True,
+              help='Sampling algorithm')
+@click.option('--parallel', '-p',
+              type=int,
+              default=1,
+              show_default=True,
+              help='Number of parallel workers')
+@click.option('--output', '-o',
+              type=click.Path(),
+              required=True,
+              help='Output directory')
+@click.option('--format', '-f',
+              type=click.Choice(['csv', 'npz', 'hdf5']),
+              default='csv',
+              show_default=True,
+              help='Output file format')
+@click.option('-v', '--verbose',
+              is_flag=True,
+              help='Verbose output')
+def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
+          algorithm, parallel, output, format, verbose):
+    """Run temperature sweep for phase diagram.
+
+    Performs simulations at multiple temperatures for one or more system sizes.
+    Supports parallel execution and multiple output formats.
+
+    Examples:
+
+        # Single size sweep
+        ising-sim sweep -m ising2d -L 32 --temp-start 1.5 --temp-end 3.5 -o results/
+
+        # Multiple sizes for finite-size scaling
+        ising-sim sweep -m ising2d -L 16 -L 32 -L 64 --temp-start 2.0 --temp-end 2.5 -o results/
+
+        # Parallel execution with 4 workers
+        ising-sim sweep -m ising2d -L 32 -L 64 --temp-start 2.0 --temp-end 2.5 -p 4 -o results/
+
+        # Save as HDF5
+        ising-sim sweep -m ising2d -L 32 --temp-start 2.0 --temp-end 2.5 -f hdf5 -o results/
+    """
+    import os
+    from datetime import datetime
+
+    # Create output directory
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate temperature array
+    temperatures = np.linspace(temp_start, temp_end, temp_steps)
+    sizes = list(size)  # Convert tuple to list
+
+    click.echo("\n" + "="*60)
+    click.echo("Temperature Sweep for Phase Diagram")
+    click.echo("="*60)
+    click.echo(f"Model:         {model}")
+    click.echo(f"Sizes:         {sizes}")
+    click.echo(f"T range:       [{temp_start}, {temp_end}], {temp_steps} points")
+    click.echo(f"Algorithm:     {algorithm}")
+    click.echo(f"Steps:         {steps} (equilibration: {equilibration})")
+    click.echo(f"Workers:       {parallel}")
+    click.echo(f"Output:        {output_dir}")
+    click.echo(f"Format:        {format}")
+    click.echo("="*60 + "\n")
+
+    all_results = {}
+
+    if parallel > 1 and len(sizes) > 1:
+        # Parallel execution using multiprocessing
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        # Prepare arguments for each size
+        tasks = [
+            (model, L, temperatures, steps, equilibration, algorithm)
+            for L in sizes
+        ]
+
+        click.echo(f"Running {len(sizes)} sweeps in parallel...")
+
+        with ProcessPoolExecutor(max_workers=parallel) as executor:
+            future_to_size = {
+                executor.submit(_run_single_sweep, task): task[1]
+                for task in tasks
+            }
+
+            with click.progressbar(length=len(sizes), label='Sweeping') as bar:
+                for future in as_completed(future_to_size):
+                    L = future_to_size[future]
+                    try:
+                        result = future.result()
+                        all_results[L] = result
+                        if verbose:
+                            click.echo(f"\n  Completed L={L}")
+                    except Exception as e:
+                        click.echo(f"\n  Error for L={L}: {e}", err=True)
+                    bar.update(1)
+    else:
+        # Sequential execution with progress bar
+        for L in sizes:
+            click.echo(f"\nProcessing L={L}...")
+
+            results = {
+                'temperatures': [],
+                'energies': [],
+                'energy_stds': [],
+                'magnetizations': [],
+                'magnetization_stds': [],
+                'heat_capacities': [],
+                'susceptibilities': [],
+            }
+
+            from ising_toolkit.models import Ising1D, Ising2D, Ising3D
+            from ising_toolkit.samplers import MetropolisSampler, WolffSampler
+
+            model_classes = {
+                'ising1d': Ising1D,
+                'ising2d': Ising2D,
+                'ising3d': Ising3D,
+            }
+
+            with click.progressbar(temperatures, label=f'L={L}') as temps:
+                for T in temps:
+                    # Create model
+                    model_instance = model_classes[model](size=L, temperature=T)
+
+                    # Create sampler
+                    if algorithm == 'metropolis':
+                        sampler = MetropolisSampler(model_instance)
+                    else:
+                        sampler = WolffSampler(model_instance)
+
+                    # Equilibration
+                    for _ in range(equilibration):
+                        sampler.step()
+
+                    # Production
+                    energies = []
+                    magnetizations = []
+
+                    for i in range(steps):
+                        sampler.step()
+                        if i % 10 == 0:
+                            energies.append(model_instance.get_energy() / model_instance.n_spins)
+                            magnetizations.append(
+                                np.abs(model_instance.get_magnetization()) / model_instance.n_spins
+                            )
+
+                    energies = np.array(energies)
+                    magnetizations = np.array(magnetizations)
+
+                    E_mean = np.mean(energies)
+                    E_std = np.std(energies)
+                    M_mean = np.mean(magnetizations)
+                    M_std = np.std(magnetizations)
+                    C = (1 / T**2) * np.var(energies) * model_instance.n_spins
+                    chi = (1 / T) * np.var(magnetizations) * model_instance.n_spins
+
+                    results['temperatures'].append(T)
+                    results['energies'].append(E_mean)
+                    results['energy_stds'].append(E_std)
+                    results['magnetizations'].append(M_mean)
+                    results['magnetization_stds'].append(M_std)
+                    results['heat_capacities'].append(C)
+                    results['susceptibilities'].append(chi)
+
+            # Convert to arrays
+            for key in results:
+                results[key] = np.array(results[key])
+
+            all_results[L] = results
+
+    # Save results for each size
+    click.echo("\n" + "-"*60)
+    click.echo("Saving results...")
+
+    saved_files = []
+
+    for L, results in all_results.items():
+        filename = _generate_sweep_filename(model, L, temp_start, temp_end, algorithm)
+
+        if format == 'csv':
+            # Save as CSV
+            filepath = output_dir / f"{filename}.csv"
+
+            # Create header
+            header = "temperature,energy,energy_std,magnetization,magnetization_std,heat_capacity,susceptibility"
+
+            # Stack data
+            data = np.column_stack([
+                results['temperatures'],
+                results['energies'],
+                results['energy_stds'],
+                results['magnetizations'],
+                results['magnetization_stds'],
+                results['heat_capacities'],
+                results['susceptibilities'],
+            ])
+
+            np.savetxt(filepath, data, delimiter=',', header=header, comments='')
+            saved_files.append(filepath)
+
+        elif format == 'npz':
+            # Save as NPZ
+            filepath = output_dir / f"{filename}.npz"
+
+            np.savez(
+                filepath,
+                model=model,
+                size=L,
+                algorithm=algorithm,
+                steps=steps,
+                equilibration=equilibration,
+                **results
+            )
+            saved_files.append(filepath)
+
+        elif format == 'hdf5':
+            # Save as HDF5
+            try:
+                import h5py
+            except ImportError:
+                raise click.ClickException("h5py required for HDF5 format. Install with: pip install h5py")
+
+            filepath = output_dir / f"{filename}.h5"
+
+            with h5py.File(filepath, 'w') as f:
+                # Metadata
+                f.attrs['model'] = model
+                f.attrs['size'] = L
+                f.attrs['algorithm'] = algorithm
+                f.attrs['steps'] = steps
+                f.attrs['equilibration'] = equilibration
+                f.attrs['created'] = datetime.now().isoformat()
+
+                # Data
+                for key, value in results.items():
+                    f.create_dataset(key, data=value)
+
+            saved_files.append(filepath)
+
+        if verbose:
+            click.echo(f"  Saved: {filepath}")
+
+    # Save combined summary
+    summary_file = output_dir / f"sweep_summary_{model}_{algorithm}.csv"
+    with open(summary_file, 'w') as f:
+        f.write("# Temperature Sweep Summary\n")
+        f.write(f"# Model: {model}\n")
+        f.write(f"# Algorithm: {algorithm}\n")
+        f.write(f"# Temperature range: {temp_start} to {temp_end} ({temp_steps} points)\n")
+        f.write(f"# Steps: {steps}, Equilibration: {equilibration}\n")
+        f.write(f"# Sizes: {sizes}\n")
+        f.write(f"# Created: {datetime.now().isoformat()}\n")
+        f.write("#\n")
+        f.write("size,T_peak_chi,chi_max,T_peak_C,C_max\n")
+
+        for L in sorted(all_results.keys()):
+            results = all_results[L]
+            idx_chi = np.argmax(results['susceptibilities'])
+            idx_C = np.argmax(results['heat_capacities'])
+            f.write(f"{L},{results['temperatures'][idx_chi]:.6f},"
+                    f"{results['susceptibilities'][idx_chi]:.6f},"
+                    f"{results['temperatures'][idx_C]:.6f},"
+                    f"{results['heat_capacities'][idx_C]:.6f}\n")
+
+    saved_files.append(summary_file)
+
     # Print summary
     click.echo("\n" + "="*60)
-    click.echo("Temperature Sweep Results")
+    click.echo("Sweep Complete!")
     click.echo("="*60)
-    click.echo(f"{'T':>8} {'E':>12} {'|M|':>12} {'C':>12} {'χ':>12}")
+
+    click.echo(f"\n{'Size':>6} {'T_peak(χ)':>12} {'χ_max':>12} {'T_peak(C)':>12} {'C_max':>12}")
     click.echo("-"*60)
 
-    for i in range(min(10, n_temps)):  # Show first 10 points
-        click.echo(
-            f"{results['temperatures'][i]:>8.4f} "
-            f"{results['energies'][i]:>12.6f} "
-            f"{results['magnetizations'][i]:>12.6f} "
-            f"{results['heat_capacities'][i]:>12.4f} "
-            f"{results['susceptibilities'][i]:>12.4f}"
-        )
+    for L in sorted(all_results.keys()):
+        results = all_results[L]
+        idx_chi = np.argmax(results['susceptibilities'])
+        idx_C = np.argmax(results['heat_capacities'])
+        T_peak_chi = results['temperatures'][idx_chi]
+        chi_max = results['susceptibilities'][idx_chi]
+        T_peak_C = results['temperatures'][idx_C]
+        C_max = results['heat_capacities'][idx_C]
 
-    if n_temps > 10:
-        click.echo(f"... ({n_temps - 10} more points)")
+        click.echo(f"{L:>6} {T_peak_chi:>12.4f} {chi_max:>12.4f} {T_peak_C:>12.4f} {C_max:>12.4f}")
 
     click.echo("="*60)
+    click.echo(f"\nSaved {len(saved_files)} files to {output_dir}/")
 
-    # Find peak in susceptibility (estimate Tc)
-    idx_max = np.argmax(results['susceptibilities'])
-    T_peak = results['temperatures'][idx_max]
-    click.echo(f"\nPeak susceptibility at T ≈ {T_peak:.4f}")
-
-    # Save results
-    if output is not None:
-        output_path = Path(output)
-        results['model'] = model
-        results['size'] = size
-        results['algorithm'] = algorithm
-        results['steps'] = steps
-
-        np.savez(output_path, **results)
-        click.echo(f"Results saved to {output_path}")
+    for f in saved_files:
+        click.echo(f"  - {f.name}")
 
 
 @main.command()

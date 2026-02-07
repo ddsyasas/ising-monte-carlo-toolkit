@@ -225,51 +225,118 @@ class TestSweepCommand:
         result = runner.invoke(main, ['sweep', '--help'])
 
         assert result.exit_code == 0
-        assert '--t-min' in result.output
-        assert '--t-max' in result.output
-        assert '--n-temps' in result.output
+        assert '--temp-start' in result.output
+        assert '--temp-end' in result.output
+        assert '--temp-steps' in result.output
+        assert '--parallel' in result.output
 
-    def test_sweep_basic(self, runner):
+    def test_sweep_basic(self, runner, temp_dir):
         """Test basic sweep command."""
+        output_dir = temp_dir / 'sweep_results'
+
         result = runner.invoke(main, [
             'sweep',
             '--model', 'ising2d',
             '--size', '8',
-            '--t-min', '2.0',
-            '--t-max', '2.5',
-            '--n-temps', '3',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
             '--steps', '500',
             '--equilibration', '100',
+            '--output', str(output_dir),
         ])
 
         assert result.exit_code == 0
         assert 'Temperature Sweep' in result.output
-        assert 'Peak susceptibility' in result.output
+        assert 'Sweep Complete' in result.output
+        assert output_dir.exists()
 
-    def test_sweep_with_output(self, runner, temp_dir):
-        """Test sweep with output file."""
-        output_file = temp_dir / 'sweep.npz'
+    def test_sweep_with_output_csv(self, runner, temp_dir):
+        """Test sweep with CSV output."""
+        output_dir = temp_dir / 'sweep_csv'
 
         result = runner.invoke(main, [
             'sweep',
             '-m', 'ising2d',
             '-L', '8',
-            '--t-min', '2.0',
-            '--t-max', '2.5',
-            '--n-temps', '3',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
             '-n', '500',
             '-e', '100',
-            '-o', str(output_file),
+            '-o', str(output_dir),
+            '-f', 'csv',
         ])
 
         assert result.exit_code == 0
-        assert output_file.exists()
+        assert output_dir.exists()
+
+        # Check CSV file exists
+        csv_files = list(output_dir.glob('*.csv'))
+        assert len(csv_files) >= 1  # At least the data file
+
+        # Verify one of the CSV files has the right structure
+        data_files = [f for f in csv_files if 'summary' not in f.name]
+        assert len(data_files) >= 1
+
+    def test_sweep_with_output_npz(self, runner, temp_dir):
+        """Test sweep with NPZ output."""
+        output_dir = temp_dir / 'sweep_npz'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(output_dir),
+            '-f', 'npz',
+        ])
+
+        assert result.exit_code == 0
+        assert output_dir.exists()
+
+        # Check NPZ file exists and has correct contents
+        npz_files = list(output_dir.glob('*.npz'))
+        assert len(npz_files) >= 1
 
         # Verify contents
-        data = np.load(output_file)
+        data = np.load(npz_files[0])
         assert 'temperatures' in data
         assert 'magnetizations' in data
         assert len(data['temperatures']) == 3
+
+    def test_sweep_multiple_sizes(self, runner, temp_dir):
+        """Test sweep with multiple lattice sizes."""
+        output_dir = temp_dir / 'sweep_multi'
+
+        result = runner.invoke(main, [
+            'sweep',
+            '-m', 'ising2d',
+            '-L', '4',
+            '-L', '8',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
+            '-n', '500',
+            '-e', '100',
+            '-o', str(output_dir),
+            '-f', 'csv',
+        ])
+
+        assert result.exit_code == 0
+        assert output_dir.exists()
+
+        # Should have files for both sizes plus summary
+        csv_files = list(output_dir.glob('*.csv'))
+        assert len(csv_files) >= 2  # At least 2 data files
+
+        # Check summary file exists
+        summary_files = [f for f in csv_files if 'summary' in f.name]
+        assert len(summary_files) == 1
 
 
 # ============================================================================
@@ -332,21 +399,27 @@ class TestPlotCommand:
         pytest.importorskip("matplotlib")
 
         # First create sweep data
-        sweep_file = temp_dir / 'sweep.npz'
+        sweep_dir = temp_dir / 'sweep_data'
 
         result = runner.invoke(main, [
             'sweep',
             '-m', 'ising2d',
             '-L', '8',
-            '--t-min', '2.0',
-            '--t-max', '2.5',
-            '--n-temps', '3',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '3',
             '-n', '500',
             '-e', '100',
-            '-o', str(sweep_file),
+            '-o', str(sweep_dir),
+            '-f', 'npz',
         ])
 
         assert result.exit_code == 0
+
+        # Find the NPZ file
+        npz_files = list(sweep_dir.glob('*.npz'))
+        assert len(npz_files) >= 1
+        sweep_file = npz_files[0]
 
         # Now plot
         plot_file = temp_dir / 'plot.png'
@@ -430,21 +503,27 @@ class TestCLIIntegration:
         """Test sweep followed by plot."""
         pytest.importorskip("matplotlib")
 
-        # Sweep
-        sweep_file = temp_dir / 'sweep.npz'
+        # Sweep with NPZ format for plotting
+        sweep_dir = temp_dir / 'sweep_data'
         result = runner.invoke(main, [
             'sweep',
             '-m', 'ising2d',
             '-L', '8',
-            '--t-min', '2.0',
-            '--t-max', '2.5',
-            '--n-temps', '5',
+            '--temp-start', '2.0',
+            '--temp-end', '2.5',
+            '--temp-steps', '5',
             '-n', '500',
             '-e', '100',
-            '-o', str(sweep_file),
+            '-o', str(sweep_dir),
+            '-f', 'npz',
         ])
 
         assert result.exit_code == 0
+
+        # Find the NPZ file
+        npz_files = list(sweep_dir.glob('*.npz'))
+        assert len(npz_files) >= 1
+        sweep_file = npz_files[0]
 
         # Plot each observable
         for obs in ['energy', 'magnetization', 'susceptibility']:
