@@ -53,6 +53,7 @@ Path(FIGURES_DIR).mkdir(parents=True, exist_ok=True)
 # =============================================================================
 
 include: "rules/analyze.smk"
+include: "rules/figures.smk"
 
 # =============================================================================
 # Helper functions
