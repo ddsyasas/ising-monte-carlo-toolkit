@@ -32,6 +32,16 @@ from ising_toolkit.utils.numba_kernels import (
     run_benchmark,
     print_benchmark_results,
 )
+from ising_toolkit.utils.parallel import (
+    parallel_map,
+    parallel_map_with_errors,
+    ParallelResult,
+    run_temperature_point,
+    run_temperature_sweep_parallel,
+    run_size_sweep_parallel,
+    run_replicas_parallel,
+    aggregate_replica_results,
+)
 from ising_toolkit.utils.constants import (
     # Physical constants
     DEFAULT_COUPLING,
@@ -84,6 +94,15 @@ __all__ = [
     "wolff_step_3d",
     "run_benchmark",
     "print_benchmark_results",
+    # Parallel execution
+    "parallel_map",
+    "parallel_map_with_errors",
+    "ParallelResult",
+    "run_temperature_point",
+    "run_temperature_sweep_parallel",
+    "run_size_sweep_parallel",
+    "run_replicas_parallel",
+    "aggregate_replica_results",
     # Physical constants
     "DEFAULT_COUPLING",
     "DEFAULT_EXTERNAL_FIELD",

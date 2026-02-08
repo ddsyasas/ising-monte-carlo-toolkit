@@ -1,6 +1,5 @@
 """Temperature sweep functionality for phase transition analysis."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Optional, Type, Union
 
 import numpy as np
@@ -15,6 +14,7 @@ from ising_toolkit.models.base import IsingModel
 from ising_toolkit.samplers import create_sampler
 from ising_toolkit.analysis.observables import calculate_all_observables
 from ising_toolkit.analysis.statistics import bootstrap_mean_error
+from ising_toolkit.utils.parallel import parallel_map
 
 
 def _run_single_temperature(args: tuple) -> dict:
@@ -215,6 +215,11 @@ class TemperatureSweep:
         pd.DataFrame
             DataFrame with columns for temperature and all observables.
             If pandas is not installed, returns a list of dictionaries.
+
+        Notes
+        -----
+        Uses the parallel_map utility for robust parallel execution with
+        proper error handling and progress tracking.
         """
         # Prepare arguments for each temperature
         args_list = [
@@ -231,51 +236,14 @@ class TemperatureSweep:
             for temp in self.temperatures
         ]
 
-        results = []
-
-        # Determine number of workers
-        if n_workers == -1:
-            import os
-            n_workers = os.cpu_count() or 1
-
-        if n_workers == 1:
-            # Sequential execution
-            if progress:
-                try:
-                    from tqdm import tqdm
-                    iterator = tqdm(args_list, desc="Temperature sweep")
-                except ImportError:
-                    iterator = args_list
-            else:
-                iterator = args_list
-
-            for args in iterator:
-                result = _run_single_temperature(args)
-                results.append(result)
-        else:
-            # Parallel execution
-            with ProcessPoolExecutor(max_workers=n_workers) as executor:
-                futures = {
-                    executor.submit(_run_single_temperature, args): args[2]
-                    for args in args_list
-                }
-
-                if progress:
-                    try:
-                        from tqdm import tqdm
-                        future_iter = tqdm(
-                            as_completed(futures),
-                            total=len(futures),
-                            desc="Temperature sweep"
-                        )
-                    except ImportError:
-                        future_iter = as_completed(futures)
-                else:
-                    future_iter = as_completed(futures)
-
-                for future in future_iter:
-                    result = future.result()
-                    results.append(result)
+        # Use parallel_map for both sequential and parallel execution
+        results = parallel_map(
+            func=_run_single_temperature,
+            items=args_list,
+            n_workers=n_workers,
+            progress=progress,
+            desc=f"Temperature sweep (L={self.size})",
+        )
 
         # Sort by temperature
         results.sort(key=lambda x: x['temperature'])
@@ -526,6 +494,40 @@ class TemperatureSweep:
             raise ValueError(f"Unknown format: {format}")
 
 
+def _run_size_sweep(args: tuple) -> tuple:
+    """Worker function for parallel finite-size scaling.
+
+    Parameters
+    ----------
+    args : tuple
+        (model_class, size, temperatures, n_steps, algorithm, seed)
+
+    Returns
+    -------
+    tuple
+        (size, results_list)
+    """
+    model_class, size, temperatures, n_steps, algorithm, seed = args
+
+    sweep = TemperatureSweep(
+        model_class=model_class,
+        size=size,
+        temperatures=temperatures,
+        n_steps=n_steps,
+        algorithm=algorithm,
+        seed=seed,
+    )
+
+    # Run sequentially within each size (parallelism is at size level)
+    results = sweep.run(n_workers=1, progress=False)
+
+    # Return as list for pickling
+    if HAS_PANDAS:
+        return (size, sweep._results_list)
+    else:
+        return (size, results)
+
+
 def run_finite_size_scaling(
     model_class: Type[IsingModel],
     sizes: List[int],
@@ -533,6 +535,7 @@ def run_finite_size_scaling(
     n_steps: int,
     algorithm: str = 'wolff',
     n_workers: int = 1,
+    parallel_sizes: bool = False,
     seed: Optional[int] = None,
     progress: bool = True,
 ):
@@ -554,7 +557,10 @@ def run_finite_size_scaling(
     algorithm : str, optional
         Sampling algorithm. Default is 'wolff'.
     n_workers : int, optional
-        Number of parallel workers. Default is 1.
+        Number of parallel workers for temperature sweep. Default is 1.
+    parallel_sizes : bool, optional
+        If True, run different sizes in parallel instead of temperatures.
+        Useful when you have many sizes but few temperatures. Default is False.
     seed : int, optional
         Random seed for reproducibility.
     progress : bool, optional
@@ -575,23 +581,54 @@ def run_finite_size_scaling(
     >>> # Binder cumulant crossing gives Tc
     >>> for L, df in results.items():
     ...     plt.plot(df['temperature'], df['binder_cumulant'], label=f'L={L}')
+
+    Notes
+    -----
+    There are two parallelization strategies:
+    1. parallel_sizes=False (default): Run each size sequentially, but
+       parallelize temperatures within each size. Best when you have
+       many temperatures.
+    2. parallel_sizes=True: Run different sizes in parallel. Best when
+       you have many sizes but few temperatures.
     """
     results = {}
 
-    for size in sizes:
-        if progress:
-            print(f"Running L={size}...")
+    if parallel_sizes and n_workers > 1:
+        # Parallelize across sizes
+        args_list = [
+            (model_class, size, temperatures, n_steps, algorithm, seed)
+            for size in sizes
+        ]
 
-        sweep = TemperatureSweep(
-            model_class=model_class,
-            size=size,
-            temperatures=temperatures,
-            n_steps=n_steps,
-            algorithm=algorithm,
-            seed=seed,
+        size_results = parallel_map(
+            func=_run_size_sweep,
+            items=args_list,
+            n_workers=min(n_workers, len(sizes)),
+            progress=progress,
+            desc="Finite-size scaling",
         )
 
-        df = sweep.run(n_workers=n_workers, progress=progress)
-        results[size] = df
+        for size, result_list in size_results:
+            if HAS_PANDAS:
+                results[size] = pd.DataFrame(result_list)
+            else:
+                results[size] = result_list
+    else:
+        # Sequential sizes, parallel temperatures
+        for size in sizes:
+            if progress:
+                print(f"Running L={size}...")
+
+            sweep = TemperatureSweep(
+                model_class=model_class,
+                size=size,
+                temperatures=temperatures,
+                n_steps=n_steps,
+                algorithm=algorithm,
+                seed=seed,
+            )
+
+            df = sweep.run(n_workers=n_workers, progress=progress)
+            results[size] = df
 
     return results
