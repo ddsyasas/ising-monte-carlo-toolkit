@@ -10,11 +10,17 @@ The Binder crossing method is generally most reliable.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy import interpolate, optimize
+
+
+def log(message):
+    """Log message to stderr."""
+    print(message, file=sys.stderr)
 
 
 def find_binder_crossings(data_by_size, sizes):
@@ -33,7 +39,6 @@ def find_binder_crossings(data_by_size, sizes):
         List of crossing information dicts
     """
     crossings = []
-
     sorted_sizes = sorted(sizes)
 
     for i in range(len(sorted_sizes) - 1):
@@ -41,26 +46,36 @@ def find_binder_crossings(data_by_size, sizes):
         L2 = sorted_sizes[i + 1]
 
         if L1 not in data_by_size or L2 not in data_by_size:
+            log(f"  Skipping L={L1}-L={L2}: missing data")
             continue
 
         df1 = data_by_size[L1].sort_values('temperature')
         df2 = data_by_size[L2].sort_values('temperature')
+
+        if 'binder' not in df1.columns or 'binder' not in df2.columns:
+            log(f"  Skipping L={L1}-L={L2}: no binder data")
+            continue
 
         # Find common temperature range
         t_min = max(df1['temperature'].min(), df2['temperature'].min())
         t_max = min(df1['temperature'].max(), df2['temperature'].max())
 
         if t_min >= t_max:
+            log(f"  Skipping L={L1}-L={L2}: no overlapping temperature range")
             continue
 
         # Interpolate to common grid
         temps = np.linspace(t_min, t_max, 200)
 
         try:
-            interp1 = interpolate.interp1d(df1['temperature'], df1['binder'],
-                                           kind='cubic', fill_value='extrapolate')
-            interp2 = interpolate.interp1d(df2['temperature'], df2['binder'],
-                                           kind='cubic', fill_value='extrapolate')
+            interp1 = interpolate.interp1d(
+                df1['temperature'], df1['binder'],
+                kind='cubic', fill_value='extrapolate'
+            )
+            interp2 = interpolate.interp1d(
+                df2['temperature'], df2['binder'],
+                kind='cubic', fill_value='extrapolate'
+            )
 
             binder1 = interp1(temps)
             binder2 = interp2(temps)
@@ -73,7 +88,7 @@ def find_binder_crossings(data_by_size, sizes):
                 # Refine crossing using root finding
                 try:
                     t_cross = optimize.brentq(
-                        lambda t: interp1(t) - interp2(t),
+                        lambda t: float(interp1(t)) - float(interp2(t)),
                         temps[idx], temps[idx + 1]
                     )
                     u_cross = float(interp1(t_cross))
@@ -84,6 +99,8 @@ def find_binder_crossings(data_by_size, sizes):
                         'T_cross': float(t_cross),
                         'U_cross': u_cross
                     })
+                    log(f"  Found crossing L={L1}-L={L2}: T={t_cross:.4f}, U={u_cross:.4f}")
+
                 except ValueError:
                     # Linear interpolation fallback
                     t_cross = temps[idx] - diff[idx] * (temps[idx+1] - temps[idx]) / (diff[idx+1] - diff[idx])
@@ -93,9 +110,10 @@ def find_binder_crossings(data_by_size, sizes):
                         'T_cross': float(t_cross),
                         'U_cross': float(interp1(t_cross))
                     })
+                    log(f"  Found crossing L={L1}-L={L2} (linear): T={t_cross:.4f}")
 
         except Exception as e:
-            print(f"Warning: Interpolation failed for L={L1}, L={L2}: {e}")
+            log(f"  ERROR processing L={L1}-L={L2}: {e}")
 
     return crossings
 
@@ -124,6 +142,7 @@ def find_susceptibility_peaks(data_by_size, sizes):
         df = data_by_size[L].sort_values('temperature')
 
         if 'susceptibility' not in df.columns:
+            log(f"  No susceptibility data for L={L}")
             continue
 
         # Find peak
@@ -131,17 +150,16 @@ def find_susceptibility_peaks(data_by_size, sizes):
         T_peak = df.loc[idx_peak, 'temperature']
         chi_peak = df.loc[idx_peak, 'susceptibility']
 
-        # Estimate error from neighboring points
-        T_err = 0.0
-        if len(df) > 3:
-            temps = df['temperature'].values
-            T_err = (temps[1] - temps[0]) / 2
+        # Estimate error from temperature spacing
+        temps = df['temperature'].values
+        T_err = (temps[1] - temps[0]) / 2 if len(temps) > 1 else 0.0
 
         peaks[int(L)] = {
             'T_peak': float(T_peak),
             'T_peak_err': float(T_err),
             'chi_peak': float(chi_peak)
         }
+        log(f"  Susceptibility peak L={L}: T={T_peak:.4f}, chi={chi_peak:.4f}")
 
     return peaks
 
@@ -173,22 +191,25 @@ def extrapolate_Tc_from_peaks(peaks, nu=1.0):
     x = sizes ** (-1 / nu)
     y = T_peaks
 
-    # Linear fit
-    coeffs = np.polyfit(x, y, 1)
-    Tc = coeffs[1]  # Intercept is Tc
-    a = coeffs[0]
+    try:
+        coeffs = np.polyfit(x, y, 1)
+        Tc = coeffs[1]  # Intercept is Tc
+        a = coeffs[0]
 
-    # Estimate error from residuals
-    y_fit = np.polyval(coeffs, x)
-    residuals = y - y_fit
-    Tc_err = np.std(residuals)
+        # Estimate error from residuals
+        y_fit = np.polyval(coeffs, x)
+        residuals = y - y_fit
+        Tc_err = np.std(residuals) if len(residuals) > 1 else 0.0
 
-    return {
-        'Tc': float(Tc),
-        'Tc_err': float(Tc_err),
-        'amplitude': float(a),
-        'nu_assumed': float(nu)
-    }
+        return {
+            'Tc': float(Tc),
+            'Tc_err': float(Tc_err),
+            'amplitude': float(a),
+            'nu_assumed': float(nu)
+        }
+    except Exception as e:
+        log(f"  ERROR in peak extrapolation: {e}")
+        return None
 
 
 def main():
@@ -198,20 +219,29 @@ def main():
     method = snakemake.params.get('method', 'binder_crossing')
     sizes = snakemake.params.get('sizes', [])
 
+    log(f"Finding critical temperature using {method} method...")
+    log(f"Loading {len(input_files)} sweep files...")
+
     # Load data for each size
     data_by_size = {}
     for filepath in input_files:
         try:
             df = pd.read_csv(filepath)
+            if len(df) == 0:
+                log(f"  WARNING: Empty file {Path(filepath).name}")
+                continue
+
             size = int(df['size'].iloc[0])
             data_by_size[size] = df
+            log(f"  Loaded L={size}: {len(df)} temperature points")
         except Exception as e:
-            print(f"Warning: Failed to load {filepath}: {e}")
+            log(f"  ERROR loading {Path(filepath).name}: {e}")
 
     if not data_by_size:
-        raise ValueError("No valid data files")
+        raise ValueError("No valid data files loaded")
 
     available_sizes = sorted(data_by_size.keys())
+    log(f"Available sizes: {available_sizes}")
 
     results = {
         'method': method,
@@ -220,6 +250,7 @@ def main():
     }
 
     # Binder crossing analysis
+    log("Performing Binder crossing analysis...")
     crossings = find_binder_crossings(data_by_size, available_sizes)
     results['binder_crossings'] = crossings
 
@@ -228,8 +259,10 @@ def main():
         results['Tc_binder'] = float(np.mean(T_values))
         results['Tc_binder_err'] = float(np.std(T_values)) if len(T_values) > 1 else 0.0
         results['U_star'] = float(np.mean([c['U_cross'] for c in crossings]))
+        log(f"Binder crossing Tc = {results['Tc_binder']:.4f} +/- {results['Tc_binder_err']:.4f}")
 
     # Susceptibility peak analysis
+    log("Performing susceptibility peak analysis...")
     peaks = find_susceptibility_peaks(data_by_size, available_sizes)
     results['susceptibility_peaks'] = peaks
 
@@ -238,6 +271,7 @@ def main():
         if extrapolation:
             results['Tc_chi_extrapolated'] = extrapolation['Tc']
             results['Tc_chi_err'] = extrapolation['Tc_err']
+            log(f"Susceptibility extrapolation Tc = {extrapolation['Tc']:.4f}")
 
     # Determine best Tc estimate
     if method == 'binder_crossing' and crossings:
@@ -248,32 +282,38 @@ def main():
         results['Tc'] = results['Tc_chi_extrapolated']
         results['Tc_err'] = results.get('Tc_chi_err', 0.0)
         results['Tc_method'] = 'susceptibility_extrapolation'
-    else:
+    elif peaks:
         # Fallback: average of susceptibility peaks
-        if peaks:
-            T_peaks = [p['T_peak'] for p in peaks.values()]
-            results['Tc'] = float(np.mean(T_peaks))
-            results['Tc_err'] = float(np.std(T_peaks))
-            results['Tc_method'] = 'susceptibility_peak_average'
-        else:
-            results['Tc'] = None
-            results['Tc_err'] = None
-            results['Tc_method'] = 'failed'
+        T_peaks = [p['T_peak'] for p in peaks.values()]
+        results['Tc'] = float(np.mean(T_peaks))
+        results['Tc_err'] = float(np.std(T_peaks)) if len(T_peaks) > 1 else 0.0
+        results['Tc_method'] = 'susceptibility_peak_average'
+    else:
+        results['Tc'] = None
+        results['Tc_err'] = None
+        results['Tc_method'] = 'failed'
+        log("WARNING: Could not determine Tc")
 
     # Save results
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
+    try:
+        with open(output_file, 'w') as f:
+            json.dump(results, f, indent=2)
+        log(f"Results saved to {output_file}")
+    except Exception as e:
+        log(f"ERROR writing output: {e}")
+        raise
 
-    print(f"Critical temperature analysis saved to {output_file}")
     if results['Tc'] is not None:
-        print(f"  Tc = {results['Tc']:.4f} ± {results['Tc_err']:.4f} ({results['Tc_method']})")
+        log(f"RESULT: Tc = {results['Tc']:.4f} +/- {results['Tc_err']:.4f} ({results['Tc_method']})")
 
 
 if __name__ == '__main__':
-    import sys
+    if len(sys.argv) < 3:
+        print("Usage: python find_Tc.py output.json input1.csv input2.csv ...", file=sys.stderr)
+        sys.exit(1)
 
     class MockSnakemake:
         def __init__(self):
