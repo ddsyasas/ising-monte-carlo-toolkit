@@ -1,6 +1,16 @@
 """Input/output utilities for saving and loading simulation data."""
 
-from ising_toolkit.io.results import SimulationResults
+from ising_toolkit.io.results import SimulationResults, LazyResults
+
+from ising_toolkit.io.compression import (
+    pack_spins,
+    unpack_spins,
+    pack_configurations,
+    unpack_configurations,
+    ConfigurationBuffer,
+    get_compression_ratio,
+    estimate_storage_size,
+)
 
 from ising_toolkit.io.config import (
     # Dataclasses
@@ -18,7 +28,17 @@ from ising_toolkit.io.config import (
 )
 
 __all__ = [
+    # Results
     "SimulationResults",
+    "LazyResults",
+    # Compression
+    "pack_spins",
+    "unpack_spins",
+    "pack_configurations",
+    "unpack_configurations",
+    "ConfigurationBuffer",
+    "get_compression_ratio",
+    "estimate_storage_size",
     # Config dataclasses
     "SimulationConfig",
     "AlgorithmConfig",
