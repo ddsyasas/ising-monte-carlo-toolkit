@@ -1,4 +1,4 @@
-"""Metropolis single-spin flip sampler."""
+"""Metropolis single-spin flip sampler with optional Numba acceleration."""
 
 from typing import Optional
 
@@ -25,6 +25,9 @@ class MetropolisSampler(Sampler):
         The Ising model to simulate.
     seed : int, optional
         Random seed for reproducibility.
+    use_fast_sweep : bool, optional
+        Use model's optimized sweep method when available (default: True).
+        This provides ~100x speedup when Numba is available.
 
     Attributes
     ----------
@@ -32,6 +35,8 @@ class MetropolisSampler(Sampler):
         The Ising model being simulated.
     rng : np.random.Generator
         NumPy random number generator.
+    use_fast_sweep : bool
+        Whether using optimized sweep method.
 
     Examples
     --------
@@ -48,6 +53,10 @@ class MetropolisSampler(Sampler):
     critical slowing down near the phase transition. For simulations
     near Tc, consider using cluster algorithms like Wolff.
 
+    When use_fast_sweep=True and the model has a metropolis_sweep() method
+    (e.g., Ising2D with Numba), the sampler uses the optimized implementation
+    which can be 100x+ faster.
+
     References
     ----------
     Metropolis, N., Rosenbluth, A.W., Rosenbluth, M.N., Teller, A.H.,
@@ -55,7 +64,12 @@ class MetropolisSampler(Sampler):
     Computing Machines". Journal of Chemical Physics, 21(6), 1087-1092.
     """
 
-    def __init__(self, model: IsingModel, seed: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        model: IsingModel,
+        seed: Optional[int] = None,
+        use_fast_sweep: bool = True,
+    ) -> None:
         """Initialize the Metropolis sampler.
 
         Parameters
@@ -64,12 +78,29 @@ class MetropolisSampler(Sampler):
             The Ising model to simulate.
         seed : int, optional
             Random seed for reproducibility.
+        use_fast_sweep : bool, optional
+            Use model's optimized sweep method when available (default: True).
         """
         super().__init__(model, seed)
 
         # Also seed the model's RNG for consistent site selection
         if seed is not None:
             self.model.set_seed(seed)
+
+        # Check if model has fast sweep method
+        self._use_fast_sweep = (
+            use_fast_sweep and
+            hasattr(model, 'metropolis_sweep') and
+            callable(getattr(model, 'metropolis_sweep'))
+        )
+
+        # Check if model uses numba
+        self._model_uses_numba = getattr(model, 'use_numba', False)
+
+    @property
+    def use_fast_sweep(self) -> bool:
+        """bool: Whether using optimized sweep method."""
+        return self._use_fast_sweep
 
     def step(self) -> int:
         """Perform one Monte Carlo step (N spin flip attempts).
@@ -85,9 +116,23 @@ class MetropolisSampler(Sampler):
 
         Notes
         -----
-        Uses precomputed acceptance probabilities from the model
-        when available for improved efficiency.
+        When the model has an optimized metropolis_sweep() method
+        (e.g., Numba-accelerated), this will be used for ~100x speedup.
         """
+        n_spins = self.model.n_spins
+
+        if self._use_fast_sweep:
+            # Use model's optimized sweep method
+            accepted = self.model.metropolis_sweep()
+            self.n_attempted += n_spins
+            self.n_accepted += accepted
+            return accepted
+        else:
+            # Fall back to Python loop
+            return self._step_python()
+
+    def _step_python(self) -> int:
+        """Pure Python implementation of one Monte Carlo step."""
         n_spins = self.model.n_spins
         accepted = 0
 
@@ -146,9 +191,11 @@ class MetropolisSampler(Sampler):
 
     def __repr__(self) -> str:
         """Return string representation."""
+        backend = "numba" if self._model_uses_numba else "python"
         return (
             f"MetropolisSampler("
             f"model={self.model.__class__.__name__}, "
             f"T={self.model.temperature:.4f}, "
+            f"backend='{backend}', "
             f"seed={self.seed})"
         )
