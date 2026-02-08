@@ -69,8 +69,16 @@ def _load_single_file(filepath: Path) -> Dict[str, Any]:
         # Try to load as sweep data
         try:
             data = np.genfromtxt(filepath, delimiter=',', names=True)
-            result = {name: data[name] for name in data.dtype.names}
-            return {'type': 'sweep', 'data': result, 'source': filepath}
+            result = {}
+            for name in data.dtype.names:
+                values = data[name]
+                # For 'size' column, extract scalar (all rows have same value)
+                if name == 'size':
+                    result[name] = int(values[0]) if len(values) > 0 else 0
+                else:
+                    result[name] = values
+            result_type = 'sweep' if 'temperatures' in result else 'single'
+            return {'type': result_type, 'data': result, 'source': filepath}
         except Exception as e:
             raise click.ClickException(f"Failed to load CSV: {e}")
 
@@ -480,7 +488,13 @@ def run(model, size, temperature, steps, equilibration, algorithm,
     if algorithm == 'metropolis':
         sampler = MetropolisSampler(model_instance)
     else:
-        sampler = WolffSampler(model_instance)
+        try:
+            sampler = WolffSampler(model_instance)
+        except Exception as e:
+            raise click.ClickException(
+                f"Wolff algorithm not supported for {model}: {e}\n"
+                f"Hint: Use '-a metropolis' instead."
+            )
 
     if verbose:
         click.echo(f"Using {algorithm} algorithm")
@@ -642,7 +656,13 @@ def _run_single_sweep(args):
         if algorithm == 'metropolis':
             sampler = MetropolisSampler(model_instance)
         else:
-            sampler = WolffSampler(model_instance)
+            try:
+                sampler = WolffSampler(model_instance)
+            except Exception as e:
+                raise click.ClickException(
+                    f"Wolff algorithm not supported for {model_name}: {e}\n"
+                    f"Hint: Use '-a metropolis' instead."
+                )
 
         # Equilibration
         for _ in range(equilibration):
@@ -849,7 +869,13 @@ def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
                     if algorithm == 'metropolis':
                         sampler = MetropolisSampler(model_instance)
                     else:
-                        sampler = WolffSampler(model_instance)
+                        try:
+                            sampler = WolffSampler(model_instance)
+                        except Exception as e:
+                            raise click.ClickException(
+                                f"Wolff algorithm not supported for {model}: {e}\n"
+                                f"Hint: Use '-a metropolis' instead."
+                            )
 
                     # Equilibration
                     for _ in range(equilibration):
@@ -904,11 +930,13 @@ def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
             # Save as CSV
             filepath = output_dir / f"{filename}.csv"
 
-            # Create header
-            header = "temperature,energy,energy_std,magnetization,magnetization_std,heat_capacity,susceptibility"
+            # Create header - use plural names to match internal structure
+            header = "size,temperatures,energies,energy_stds,magnetizations,magnetization_stds,heat_capacities,susceptibilities"
 
-            # Stack data
+            # Stack data (add size column)
+            n_temps = len(results['temperatures'])
             data = np.column_stack([
+                np.full(n_temps, L),  # size column
                 results['temperatures'],
                 results['energies'],
                 results['energy_stds'],

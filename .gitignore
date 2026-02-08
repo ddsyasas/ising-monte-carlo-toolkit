@@ -144,3 +144,15 @@ Thumbs.db
 *.h5
 output/
 results/
+
+# Simulation outputs (test runs)
+*.npz
+*_sweep/
+sweep_results/
+phase_data.csv
+phase_diagram*.png
+snapshot_run.npz
+*_test.npz
+*_test.json
+analysis_test.*
+anim_data.npz
