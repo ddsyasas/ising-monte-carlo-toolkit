@@ -12,11 +12,11 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> &nbsp;&bull;&nbsp;
-  <a href="#-features">Features</a> &nbsp;&bull;&nbsp;
-  <a href="#-results">Results</a> &nbsp;&bull;&nbsp;
-  <a href="#-cli-reference">CLI Reference</a> &nbsp;&bull;&nbsp;
-  <a href="#-python-api">Python API</a> &nbsp;&bull;&nbsp;
+  <a href="#quick-start">Quick Start</a> &nbsp;&bull;&nbsp;
+  <a href="#features">Features</a> &nbsp;&bull;&nbsp;
+  <a href="#results">Results</a> &nbsp;&bull;&nbsp;
+  <a href="#cli-reference">CLI Reference</a> &nbsp;&bull;&nbsp;
+  <a href="#python-api">Python API</a> &nbsp;&bull;&nbsp;
   <a href="docs/USAGE.md">Full Documentation</a>
 </p>
 
@@ -54,16 +54,16 @@ where $J > 0$ is the ferromagnetic coupling and $\sigma_i = \pm 1$ are spin vari
 
 ## Table of Contents
 
-- [Quick Start](#-quick-start)
-- [Features](#-features)
-- [Results Gallery](#-results)
-- [CLI Reference](#-cli-reference)
-- [Python API](#-python-api)
-- [Architecture](#-architecture)
-- [Model Compatibility](#-model-compatibility)
-- [Physical Background](#-physical-background)
-- [Benchmarks](#-benchmarks)
-- [Contributing](#-contributing)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Results Gallery](#results)
+- [CLI Reference](#cli-reference)
+- [Python API](#python-api)
+- [Architecture](#architecture)
+- [Model Compatibility](#model-compatibility)
+- [Physical Background](#physical-background)
+- [Benchmarks](#benchmarks)
+- [Contributing](#contributing)
 
 ---
 
@@ -815,5 +815,5 @@ Contributions are welcome! Areas where help is needed:
 ---
 
 <p align="center">
-  Built for physicists, by physicists.
+  <em>Built for physicists, by an upcoming physicist — <strong>Sajana Yasas</strong></em>
 </p>
