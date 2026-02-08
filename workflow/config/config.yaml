@@ -1,0 +1,143 @@
+# =============================================================================
+# Ising Monte Carlo Workflow Configuration
+# =============================================================================
+#
+# This configuration file controls the Snakemake workflow for running
+# Ising model simulations and generating analysis outputs.
+#
+# To use custom settings:
+#   1. Edit this file directly, or
+#   2. Create a new config file and run: snakemake --configfile myconfig.yaml
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Model Settings
+# -----------------------------------------------------------------------------
+
+# Model type: ising1d, ising2d, or ising3d
+model: "ising2d"
+
+# Lattice sizes to simulate (for finite-size scaling)
+# Larger sizes give better accuracy but take longer
+sizes:
+  - 8
+  - 16
+  - 32
+  - 64
+
+# Temperature range
+# For 2D Ising: Tc ≈ 2.269, so sweep around this value
+# For 3D Ising: Tc ≈ 4.511
+temperatures:
+  start: 1.5    # Starting temperature
+  end: 3.5      # Ending temperature
+  steps: 41     # Number of temperature points (odd number includes Tc)
+
+# -----------------------------------------------------------------------------
+# Simulation Parameters
+# -----------------------------------------------------------------------------
+
+# Number of Monte Carlo steps per temperature
+# More steps = better statistics but longer runtime
+# Recommended: 100000 for production, 10000 for testing
+n_steps: 100000
+
+# Equilibration steps (discarded before measurements)
+# Should be ~10% of n_steps, more near critical point
+equilibration: 10000
+
+# Sampling algorithm: metropolis or wolff
+# wolff is faster near Tc but only works at h=0
+algorithm: "wolff"
+
+# Random seed for reproducibility (null for random)
+seed: null
+
+# -----------------------------------------------------------------------------
+# Output Directories
+# -----------------------------------------------------------------------------
+
+# Directory for simulation results
+results_dir: "results"
+
+# Directory for generated figures
+figures_dir: "figures"
+
+# -----------------------------------------------------------------------------
+# Analysis Settings
+# -----------------------------------------------------------------------------
+
+# Bootstrap samples for error estimation
+bootstrap_samples: 1000
+
+# Finite-size scaling settings
+fss:
+  # Known critical exponents for 2D Ising
+  # Set to null for automatic estimation
+  beta: 0.125      # Magnetization exponent
+  gamma: 1.75      # Susceptibility exponent
+  nu: 1.0          # Correlation length exponent
+
+  # Window around Tc for scaling collapse
+  tc_window: 0.3
+
+# Binder cumulant analysis
+binder:
+  # Expected universal value at Tc
+  universal_value: 0.6106  # For 2D Ising
+
+# -----------------------------------------------------------------------------
+# Plot Settings
+# -----------------------------------------------------------------------------
+
+plots:
+  # Style: publication, presentation, or default
+  style: "publication"
+
+  # Output format: pdf, png, or svg
+  format: "pdf"
+
+  # DPI for raster formats
+  dpi: 300
+
+  # Figure sizes (width, height in inches)
+  figsize:
+    single: [6, 4.5]
+    double: [10, 4]
+    quad: [10, 8]
+
+# -----------------------------------------------------------------------------
+# Cluster/HPC Settings (optional)
+# -----------------------------------------------------------------------------
+
+# For running on computing clusters
+cluster:
+  # Use cluster submission (requires snakemake --cluster)
+  enabled: false
+
+  # Partition/queue name
+  partition: "normal"
+
+  # Maximum walltime per job (HH:MM:SS)
+  walltime: "02:00:00"
+
+  # Memory per job (MB)
+  mem_mb: 4000
+
+  # CPUs per job
+  cpus: 1
+
+# -----------------------------------------------------------------------------
+# Advanced Settings
+# -----------------------------------------------------------------------------
+
+# Measurement interval (steps between measurements)
+# Lower = more correlated samples, higher = fewer samples
+measurement_interval: 10
+
+# Save spin configurations (for snapshots/animations)
+save_spins: true
+
+# Verbosity level (0=quiet, 1=normal, 2=verbose)
+verbosity: 1

@@ -1,0 +1,312 @@
+"""
+Snakemake workflow for Ising Monte Carlo simulations.
+
+This workflow automates:
+1. Running simulations across multiple sizes and temperatures
+2. Collecting results into summary files
+3. Generating publication-quality figures
+4. Performing finite-size scaling analysis
+
+Usage:
+    snakemake --cores 4                    # Run with 4 cores
+    snakemake --cores all                  # Use all available cores
+    snakemake -n                           # Dry run (show what would be done)
+    snakemake --dag | dot -Tpdf > dag.pdf  # Visualize workflow DAG
+
+Configuration:
+    Edit config/config.yaml to customize simulation parameters.
+"""
+
+import numpy as np
+from pathlib import Path
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+configfile: "config/config.yaml"
+
+# Extract configuration with defaults
+MODEL = config.get("model", "ising2d")
+SIZES = config.get("sizes", [8, 16, 32])
+TEMP_CONFIG = config.get("temperatures", {"start": 2.0, "end": 2.5, "steps": 20})
+N_STEPS = config.get("n_steps", 100000)
+EQUILIBRATION = config.get("equilibration", 10000)
+ALGORITHM = config.get("algorithm", "metropolis")
+SEED = config.get("seed", None)
+RESULTS_DIR = config.get("results_dir", "results")
+FIGURES_DIR = config.get("figures_dir", "figures")
+
+# Generate temperature array
+TEMPS = [f"{t:.4f}" for t in np.linspace(
+    TEMP_CONFIG["start"],
+    TEMP_CONFIG["end"],
+    TEMP_CONFIG["steps"]
+)]
+
+# Create output directories
+Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
+Path(FIGURES_DIR).mkdir(parents=True, exist_ok=True)
+
+# =============================================================================
+# Helper functions
+# =============================================================================
+
+def get_all_simulation_files():
+    """Get list of all simulation output files."""
+    return expand(
+        f"{RESULTS_DIR}/{MODEL}_L{{size}}_T{{temp}}.npz",
+        size=SIZES,
+        temp=TEMPS
+    )
+
+def get_size_simulation_files(size):
+    """Get simulation files for a specific size."""
+    return expand(
+        f"{RESULTS_DIR}/{MODEL}_L{size}_T{{temp}}.npz",
+        temp=TEMPS
+    )
+
+# =============================================================================
+# Target rules
+# =============================================================================
+
+rule all:
+    """Default target: generate all outputs."""
+    input:
+        f"{FIGURES_DIR}/phase_diagram.pdf",
+        f"{FIGURES_DIR}/binder_crossing.pdf",
+        f"{FIGURES_DIR}/finite_size_scaling.pdf",
+        f"{RESULTS_DIR}/observables.csv",
+        f"{RESULTS_DIR}/critical_analysis.json"
+
+
+rule figures:
+    """Generate all figures."""
+    input:
+        f"{FIGURES_DIR}/phase_diagram.pdf",
+        f"{FIGURES_DIR}/binder_crossing.pdf",
+        f"{FIGURES_DIR}/finite_size_scaling.pdf",
+        expand(f"{FIGURES_DIR}/magnetization_L{{size}}.pdf", size=SIZES)
+
+
+rule simulations:
+    """Run all simulations."""
+    input:
+        get_all_simulation_files()
+
+
+rule clean:
+    """Remove all generated files."""
+    shell:
+        """
+        rm -rf {RESULTS_DIR}/*.npz {RESULTS_DIR}/*.csv {RESULTS_DIR}/*.json
+        rm -rf {FIGURES_DIR}/*.pdf {FIGURES_DIR}/*.png
+        """
+
+
+# =============================================================================
+# Simulation rules
+# =============================================================================
+
+rule simulate:
+    """Run a single Monte Carlo simulation."""
+    output:
+        f"{RESULTS_DIR}/{{model}}_L{{size}}_T{{temp}}.npz"
+    params:
+        steps=N_STEPS,
+        eq=EQUILIBRATION,
+        alg=ALGORITHM,
+        seed=SEED
+    log:
+        f"logs/simulate_{{model}}_L{{size}}_T{{temp}}.log"
+    benchmark:
+        f"benchmarks/simulate_{{model}}_L{{size}}_T{{temp}}.txt"
+    resources:
+        mem_mb=lambda wildcards: 100 * int(wildcards.size) ** 2  # Scale with system size
+    shell:
+        """
+        ising-sim run \
+            --model {wildcards.model} \
+            --size {wildcards.size} \
+            --temperature {wildcards.temp} \
+            --steps {params.steps} \
+            --equilibration {params.eq} \
+            --algorithm {params.alg} \
+            --output {output} \
+            --save-spins \
+            2>&1 | tee {log}
+        """
+
+
+rule simulate_sweep:
+    """Run temperature sweep for a single size (alternative to individual runs)."""
+    output:
+        directory(f"{RESULTS_DIR}/sweep_L{{size}}")
+    params:
+        model=MODEL,
+        t_start=TEMP_CONFIG["start"],
+        t_end=TEMP_CONFIG["end"],
+        t_steps=TEMP_CONFIG["steps"],
+        steps=N_STEPS,
+        eq=EQUILIBRATION,
+        alg=ALGORITHM
+    log:
+        f"logs/sweep_L{{size}}.log"
+    shell:
+        """
+        ising-sim sweep \
+            --model {params.model} \
+            --size {wildcards.size} \
+            --temp-start {params.t_start} \
+            --temp-end {params.t_end} \
+            --temp-steps {params.t_steps} \
+            --steps {params.steps} \
+            --equilibration {params.eq} \
+            --algorithm {params.alg} \
+            --output {output} \
+            --format npz \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Data collection rules
+# =============================================================================
+
+rule collect_results:
+    """Collect all simulation results into a single CSV file."""
+    input:
+        get_all_simulation_files()
+    output:
+        f"{RESULTS_DIR}/observables.csv"
+    log:
+        f"logs/collect_results.log"
+    script:
+        "scripts/collect_results.py"
+
+
+rule collect_by_size:
+    """Collect results for a specific size."""
+    input:
+        lambda wildcards: get_size_simulation_files(wildcards.size)
+    output:
+        f"{RESULTS_DIR}/observables_L{{size}}.csv"
+    script:
+        "scripts/collect_results.py"
+
+
+# =============================================================================
+# Analysis rules
+# =============================================================================
+
+rule analyze_critical:
+    """Perform critical point analysis."""
+    input:
+        f"{RESULTS_DIR}/observables.csv"
+    output:
+        f"{RESULTS_DIR}/critical_analysis.json"
+    params:
+        model=MODEL
+    log:
+        f"logs/analyze_critical.log"
+    script:
+        "scripts/analyze_critical.py"
+
+
+rule compute_binder:
+    """Compute Binder cumulant for all sizes."""
+    input:
+        get_all_simulation_files()
+    output:
+        f"{RESULTS_DIR}/binder_cumulant.csv"
+    script:
+        "scripts/compute_binder.py"
+
+
+# =============================================================================
+# Plotting rules
+# =============================================================================
+
+rule plot_phase_diagram:
+    """Generate phase diagram figure."""
+    input:
+        f"{RESULTS_DIR}/observables.csv"
+    output:
+        f"{FIGURES_DIR}/phase_diagram.pdf"
+    params:
+        style="publication"
+    log:
+        f"logs/plot_phase_diagram.log"
+    script:
+        "scripts/plot_phase_diagram.py"
+
+
+rule plot_magnetization:
+    """Plot magnetization vs temperature for a specific size."""
+    input:
+        f"{RESULTS_DIR}/observables_L{{size}}.csv"
+    output:
+        f"{FIGURES_DIR}/magnetization_L{{size}}.pdf"
+    script:
+        "scripts/plot_observable.py"
+
+
+rule plot_binder_crossing:
+    """Plot Binder cumulant crossing to estimate Tc."""
+    input:
+        f"{RESULTS_DIR}/binder_cumulant.csv"
+    output:
+        f"{FIGURES_DIR}/binder_crossing.pdf"
+    params:
+        model=MODEL
+    log:
+        f"logs/plot_binder.log"
+    script:
+        "scripts/plot_binder.py"
+
+
+rule plot_finite_size_scaling:
+    """Generate finite-size scaling collapse plot."""
+    input:
+        f"{RESULTS_DIR}/observables.csv",
+        f"{RESULTS_DIR}/critical_analysis.json"
+    output:
+        f"{FIGURES_DIR}/finite_size_scaling.pdf"
+    params:
+        model=MODEL
+    log:
+        f"logs/plot_fss.log"
+    script:
+        "scripts/plot_fss.py"
+
+
+rule plot_snapshots:
+    """Generate spin configuration snapshots."""
+    input:
+        expand(f"{RESULTS_DIR}/{MODEL}_L{{size}}_T{{temp}}.npz",
+               size=max(SIZES), temp=[TEMPS[0], TEMPS[len(TEMPS)//2], TEMPS[-1]])
+    output:
+        f"{FIGURES_DIR}/snapshots.pdf"
+    script:
+        "scripts/plot_snapshots.py"
+
+
+# =============================================================================
+# Report generation
+# =============================================================================
+
+rule report:
+    """Generate summary report."""
+    input:
+        observables=f"{RESULTS_DIR}/observables.csv",
+        critical=f"{RESULTS_DIR}/critical_analysis.json",
+        phase_diagram=f"{FIGURES_DIR}/phase_diagram.pdf",
+        binder=f"{FIGURES_DIR}/binder_crossing.pdf",
+        fss=f"{FIGURES_DIR}/finite_size_scaling.pdf"
+    output:
+        f"{RESULTS_DIR}/report.html"
+    log:
+        f"logs/report.log"
+    script:
+        "scripts/generate_report.py"
