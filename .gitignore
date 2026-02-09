@@ -156,3 +156,7 @@ snapshot_run.npz
 *_test.json
 analysis_test.*
 anim_data.npz
+ising*_phase_diagram.pdf
+
+# Local TODO (not for GitHub)
+TODO.md
