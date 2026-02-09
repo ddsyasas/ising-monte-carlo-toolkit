@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/version-0.1.0-green?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/physics-statistical_mechanics-red?style=for-the-badge" alt="Physics">
   <img src="https://img.shields.io/badge/numba-JIT_accelerated-orange?style=for-the-badge&logo=numba" alt="Numba">
+  <a href="https://github.com/ddsyasas/ising-monte-carlo-toolkit/actions/workflows/ci.yml"><img src="https://github.com/ddsyasas/ising-monte-carlo-toolkit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 <p align="center">
