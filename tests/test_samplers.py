@@ -50,7 +50,7 @@ class TestMetropolisStep:
     def test_metropolis_step_changes_spins(self):
         """Test that steps can change spin configuration."""
         model = Ising2D(size=10, temperature=2.5)
-        model.initialize("up")
+        model.initialize("random")
         sampler = MetropolisSampler(model, seed=42)
 
         initial_spins = model.spins.copy()
@@ -59,7 +59,7 @@ class TestMetropolisStep:
         for _ in range(10):
             sampler.step()
 
-        # At T=2.5, some spins should have flipped
+        # At T=2.5 with random init, some spins should have flipped
         assert not np.array_equal(model.spins, initial_spins)
 
     def test_metropolis_step_returns_accepted_count(self):
