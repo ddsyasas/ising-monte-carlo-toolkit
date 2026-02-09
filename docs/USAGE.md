@@ -6,12 +6,12 @@ A comprehensive guide to using the Ising Monte Carlo simulation toolkit for stud
 
 - [Quick Start](#quick-start)
 - [CLI Commands](#cli-commands)
-  - [run - Single Simulation](#run---single-simulation)
-  - [sweep - Temperature Sweep](#sweep---temperature-sweep)
-  - [plot - Visualization](#plot---visualization)
-  - [analyze - Statistical Analysis](#analyze---statistical-analysis)
-  - [info - Model Information](#info---model-information)
-  - [benchmark - Performance Test](#benchmark---performance-test)
+  - [run - Single Simulation](#run-single-simulation)
+  - [sweep - Temperature Sweep](#sweep-temperature-sweep)
+  - [plot - Visualization](#plot-visualization)
+  - [analyze - Statistical Analysis](#analyze-statistical-analysis)
+  - [info - Model Information](#info-model-information)
+  - [benchmark - Performance Test](#benchmark-performance-test)
 - [Example Workflows](#example-workflows)
 - [Output Examples](#output-examples)
   - [2D Ising Model](#2d-ising-model-results)
@@ -28,11 +28,11 @@ A comprehensive guide to using the Ising Monte Carlo simulation toolkit for stud
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ising-monte-carlo-toolkit.git
+git clone https://github.com/ddsyasas/ising-monte-carlo-toolkit.git
 cd ising-monte-carlo-toolkit
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 ```
 
 ### Your First Simulation
