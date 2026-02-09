@@ -158,5 +158,8 @@ analysis_test.*
 anim_data.npz
 ising*_phase_diagram.pdf
 
+# mkdocs build output
+site/
+
 # Local TODO (not for GitHub)
 TODO.md

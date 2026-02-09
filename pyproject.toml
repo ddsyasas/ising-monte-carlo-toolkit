@@ -39,6 +39,11 @@ dev = [
     "flake8",
     "mypy",
 ]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
 
 [project.scripts]
 ising-sim = "ising_toolkit.cli:main"

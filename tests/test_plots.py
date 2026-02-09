@@ -1,5 +1,6 @@
 """Tests for visualization plotting functions."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -1374,6 +1375,10 @@ class TestPlotTimeSeries:
 # Visual Regression Tests
 # ============================================================================
 
+@pytest.mark.skipif(
+    os.getenv("CI") == "true",
+    reason="Visual regression tests are platform-dependent"
+)
 class TestVisualRegression:
     """Visual regression tests - compare against reference images."""
 

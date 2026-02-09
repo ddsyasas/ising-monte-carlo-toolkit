@@ -1,4 +1,4 @@
-.PHONY: test lint coverage clean all
+.PHONY: test lint coverage clean all docs
 
 all: lint test
 
@@ -10,6 +10,12 @@ lint:
 
 coverage:
 	python -m pytest tests/ --cov=ising_toolkit --cov-report=term-missing
+
+docs:
+	mkdocs build
+
+docs-serve:
+	mkdocs serve
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
