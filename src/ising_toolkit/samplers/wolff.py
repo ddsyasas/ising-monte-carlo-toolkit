@@ -108,6 +108,9 @@ class WolffSampler(Sampler):
 
     def _update_bond_probability(self) -> None:
         """Update the bond addition probability based on current temperature."""
+        # Bond probability p = 1 - exp(-2βJ) ensures detailed balance
+        # for the cluster update. Near Tc, p ≈ 1 so clusters grow large,
+        # efficiently decorrelating configurations (critical slowing down reduction).
         self.p_add = 1.0 - np.exp(-2.0 * self.model.beta * self.model.coupling)
 
     def set_temperature(self, temperature: float) -> None:
@@ -154,9 +157,10 @@ class WolffSampler(Sampler):
                 if neighbor not in cluster:
                     neighbor_spin = self._get_spin(neighbor)
 
-                    # Only consider aligned neighbors
+                    # Only consider aligned neighbors (anti-aligned bonds
+                    # are never activated in the Wolff algorithm)
                     if neighbor_spin == seed_spin:
-                        # Add with probability p_add
+                        # Probabilistic bond activation ensures detailed balance
                         if self.rng.random() < self.p_add:
                             cluster.add(neighbor)
                             stack.append(neighbor)
@@ -165,11 +169,12 @@ class WolffSampler(Sampler):
         for site in cluster:
             self.model.flip_spin(site)
 
-        # Update statistics
+        # Track cluster size for monitoring critical behavior:
+        # near Tc, average cluster size diverges as L^(γ/ν)
         cluster_size = len(cluster)
         self.cluster_sizes.append(cluster_size)
         self.n_attempted += 1
-        self.n_accepted += 1  # Wolff always accepts
+        self.n_accepted += 1  # Wolff always accepts (no rejection step)
 
         return cluster_size
 

@@ -214,7 +214,8 @@ def calculate_correlation_time(
         # Autocorrelation at lag t
         autocorr = np.mean(x[:-t] * x[t:]) / var
 
-        # Stop if autocorrelation becomes negative or very small
+        # Autocorrelation should decay monotonically; negative values
+        # indicate statistical noise, so we stop (Sokal's windowing)
         if autocorr <= 0.0:
             break
 

@@ -364,8 +364,13 @@ class Ising2D(IsingModel):
                 if j > 0:
                     nn_sum += self._spins[i, j - 1]
 
+            # Energy change for flipping spin s_i: ΔE = -2*J*s_i*Σ(neighbors)
+            # Factor of 2 arises because flipping s_i -> -s_i changes each
+            # pair interaction -J*s_i*s_j by 2*J*s_i*s_j
             dE = 2 * self._coupling * self._spins[i, j] * nn_sum
 
+            # Metropolis acceptance: always accept if ΔE ≤ 0 (lower energy),
+            # otherwise accept with probability exp(-β*ΔE)
             if dE <= 0:
                 self._spins[i, j] *= -1
                 n_accepted += 1

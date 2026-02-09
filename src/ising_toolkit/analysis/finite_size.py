@@ -273,14 +273,15 @@ class FiniteSizeScaling:
                 U1_interp = np.interp(temp_grid, temps1, U1)
                 U2_interp = np.interp(temp_grid, temps2, U2)
 
-                # Find crossing (where U1 - U2 changes sign)
+                # Binder cumulant curves for different L cross at Tc
+                # because U is renormalization-group invariant at criticality
                 diff = U1_interp - U2_interp
                 sign_changes = np.where(np.diff(np.sign(diff)) != 0)[0]
 
                 if len(sign_changes) > 0:
-                    # Take first crossing (usually the relevant one)
                     idx = sign_changes[0]
-                    # Linear interpolation for precise crossing
+                    # Linear interpolation between grid points where
+                    # sign change occurs: solve diff(T) = 0 linearly
                     t1, t2 = temp_grid[idx], temp_grid[idx + 1]
                     d1, d2 = diff[idx], diff[idx + 1]
                     Tc_crossing = t1 - d1 * (t2 - t1) / (d2 - d1)
@@ -353,7 +354,8 @@ class FiniteSizeScaling:
 
         log_M = np.array(log_M)
 
-        # Linear fit: log(M) = -β/ν * log(L) + const
+        # Power law M ~ L^(-β/ν) becomes linear in log-log space:
+        # log(M) = -β/ν * log(L) + const, so slope gives the exponent
         coeffs, cov = np.polyfit(log_L, log_M, 1, cov=True)
         beta_nu = -coeffs[0]
         error = np.sqrt(cov[0, 0])
