@@ -110,8 +110,6 @@ class TestSetStyle:
         """Test set_style applies to rcParams."""
         plt = pytest.importorskip("matplotlib.pyplot")
 
-        original_size = plt.rcParams['font.size']
-
         try:
             set_style('presentation')
             # Font size should change
@@ -132,7 +130,7 @@ class TestResetStyle:
 
     def test_reset_style_restores_defaults(self):
         """Test reset_style restores matplotlib defaults."""
-        plt = pytest.importorskip("matplotlib.pyplot")
+        pytest.importorskip("matplotlib.pyplot")
 
         # Apply a style
         set_style('publication')
@@ -205,7 +203,7 @@ class TestRegisterStyle:
 
         retrieved = get_style('my_custom')
         assert retrieved['font.size'] == 20
-        assert retrieved['axes.grid'] == True
+        assert retrieved['axes.grid'] is True
 
     def test_registered_style_in_list(self):
         """Test registered style appears in list."""
@@ -352,7 +350,7 @@ class TestPlottingUtilities:
         fig, ax = plt.subplots()
         ax.plot([1, 2, 3], [1, 2, 3])
 
-        line = add_critical_line(ax, Tc=2.269)
+        add_critical_line(ax, Tc=2.269)
 
         # Check line was added
         assert len(ax.lines) >= 1

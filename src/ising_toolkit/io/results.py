@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
-import weakref
 
 import h5py
 import numpy as np
@@ -15,7 +14,6 @@ from ising_toolkit.utils import FileFormatError
 from ising_toolkit.io.compression import (
     pack_spins,
     unpack_spins,
-    ConfigurationBuffer,
 )
 
 
@@ -364,14 +362,14 @@ class SimulationResults:
         temperature = self.metadata.get("temperature", "?")
 
         lines = [
-            f"SimulationResults(",
+            "SimulationResults(",
             f"  model_type='{model_type}',",
             f"  size={size},",
             f"  temperature={temperature},",
             f"  n_samples={self.n_samples},",
             f"  energy_mean={self.energy_mean:.4f} ± {self.energy_err:.4f},",
             f"  |M|_mean={self.abs_magnetization_mean:.4f}",
-            f")",
+            ")",
         ]
         return "\n".join(lines)
 
@@ -664,7 +662,10 @@ class LazyResults:
             If index is out of range.
         """
         if index < 0 or index >= self._n_configurations:
-            raise IndexError(f"Configuration index {index} out of range [0, {self._n_configurations})")
+            raise IndexError(
+                f"Configuration index {index} out of range "
+                f"[0, {self._n_configurations})"
+            )
 
         f = self._ensure_open()
         config_grp = f["configurations"]

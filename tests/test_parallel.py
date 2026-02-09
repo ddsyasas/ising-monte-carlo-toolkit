@@ -200,7 +200,7 @@ class TestTemperatureSweepParallel:
             seed=42,
         )
 
-        results = sweep.run(n_workers=1, progress=False)
+        sweep.run(n_workers=1, progress=False)
 
         # Should have results for all temperatures
         assert len(sweep._results_list) == 3
@@ -221,7 +221,7 @@ class TestTemperatureSweepParallel:
             seed=42,
         )
 
-        results = sweep.run(n_workers=2, progress=False)
+        sweep.run(n_workers=2, progress=False)
 
         # Should have results for all temperatures
         assert len(sweep._results_list) == 5
@@ -242,7 +242,7 @@ class TestTemperatureSweepParallel:
             seed=42,
         )
 
-        results = sweep.run(n_workers=4, progress=False)
+        sweep.run(n_workers=4, progress=False)
 
         # Should have results for all temperatures
         assert len(sweep._results_list) == 10
@@ -372,7 +372,7 @@ class TestRunTemperaturePoint:
         args = (
             'Ising2D',           # model_class_name
             {'size': 8},         # model_kwargs
-            'MetropolisSampler', # sampler_class_name
+            'MetropolisSampler',  # sampler_class_name
             {},                  # sampler_kwargs
             2.269,               # temperature
             100,                 # n_steps

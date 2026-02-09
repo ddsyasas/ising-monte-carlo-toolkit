@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
-from scipy import optimize
+from scipy import optimize  # noqa: F401
 
 try:
     import pandas as pd

@@ -1,9 +1,8 @@
 """Command-line interface for the Ising Monte Carlo toolkit."""
 
 import json
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import click
 import numpy as np
@@ -781,7 +780,6 @@ def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
         # Save as HDF5
         ising-sim sweep -m ising2d -L 32 --temp-start 2.0 --temp-end 2.5 -f hdf5 -o results/
     """
-    import os
     from datetime import datetime
 
     # Create output directory
@@ -931,7 +929,11 @@ def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
             filepath = output_dir / f"{filename}.csv"
 
             # Create header - use plural names to match internal structure
-            header = "size,temperatures,energies,energy_stds,magnetizations,magnetization_stds,heat_capacities,susceptibilities"
+            header = (
+                "size,temperatures,energies,energy_stds,"
+                "magnetizations,magnetization_stds,"
+                "heat_capacities,susceptibilities"
+            )
 
             # Stack data (add size column)
             n_temps = len(results['temperatures'])
@@ -969,7 +971,10 @@ def sweep(model, size, temp_start, temp_end, temp_steps, steps, equilibration,
             try:
                 import h5py
             except ImportError:
-                raise click.ClickException("h5py required for HDF5 format. Install with: pip install h5py")
+                raise click.ClickException(
+                    "h5py required for HDF5 format. "
+                    "Install with: pip install h5py"
+                )
 
             filepath = output_dir / f"{filename}.h5"
 
@@ -1080,7 +1085,7 @@ def info(model):
         click.echo("\n2D Ising Model (Square Lattice)")
         click.echo("-"*50)
         click.echo(f"Critical temperature:  Tc = {CRITICAL_TEMP_2D:.6f} J/kB")
-        click.echo(f"                          = 2/ln(1+√2)")
+        click.echo("                          = 2/ln(1+√2)")
         click.echo("\nCritical exponents (exact):")
         click.echo(f"  β  = {CRITICAL_EXPONENT_BETA_2D:.6f}  (magnetization)")
         click.echo(f"  γ  = {CRITICAL_EXPONENT_GAMMA_2D:.6f}  (susceptibility)")
@@ -1247,9 +1252,12 @@ def plot(input, plot_type, observable, output, format, style, dpi, verbose):
     try:
         import matplotlib
         matplotlib.use('Agg')  # Non-interactive backend
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt  # noqa: F401
     except ImportError:
-        raise click.ClickException("matplotlib required for plotting. Install with: pip install matplotlib")
+        raise click.ClickException(
+            "matplotlib required for plotting. "
+            "Install with: pip install matplotlib"
+        )
 
     input_path = Path(input)
 
@@ -1651,7 +1659,7 @@ def _plot_autocorrelation(data, result_type, observable, output_path, format, dp
 
     # Mark exponential decay region
     ax.axhline(y=np.exp(-1), color='red', linestyle='--', alpha=0.7,
-               label=f'e⁻¹ level')
+               label='e⁻¹ level')
 
     # Find where autocorrelation crosses 1/e
     cross_idx = np.where(autocorr < np.exp(-1))[0]
@@ -1695,9 +1703,10 @@ def benchmark():
     T = 2.269  # Critical temperature
 
     click.echo(f"\nTemperature: T = {T} (critical)")
-    click.echo(f"Steps: 10000 per test\n")
+    click.echo("Steps: 10000 per test\n")
 
-    click.echo(f"{'Size':>6} {'Metropolis (s)':>16} {'Wolff (s)':>16} {'Speedup':>10}")
+    header = f"{'Size':>6} {'Metropolis (s)':>16} {'Wolff (s)':>16} {'Speedup':>10}"
+    click.echo(header)
     click.echo("-"*50)
 
     for L in sizes:
@@ -1848,10 +1857,12 @@ def analyze(input, observables, bootstrap, output, format, verbose):
     for analysis in all_analysis:
         if 'susceptibility' in analysis and isinstance(analysis['susceptibility'], dict):
             if 'peak_temperature' in analysis['susceptibility']:
-                click.echo(f"\nEstimated Tc (χ peak): {analysis['susceptibility']['peak_temperature']:.4f}")
+                Tc_chi = analysis['susceptibility']['peak_temperature']
+                click.echo(f"\nEstimated Tc (χ peak): {Tc_chi:.4f}")
         if 'heat_capacity' in analysis and isinstance(analysis['heat_capacity'], dict):
             if 'peak_temperature' in analysis['heat_capacity']:
-                click.echo(f"Estimated Tc (C peak): {analysis['heat_capacity']['peak_temperature']:.4f}")
+                Tc_C = analysis['heat_capacity']['peak_temperature']
+                click.echo(f"Estimated Tc (C peak): {Tc_C:.4f}")
 
     # Save results if output specified
     if output is not None:
@@ -1934,7 +1945,10 @@ def analyze(input, observables, bootstrap, output, format, verbose):
                                 elif isinstance(v, str):
                                     subgrp.attrs[k] = v
                         elif isinstance(value, (int, float, np.number)):
-                            grp.attrs[key] = float(value) if isinstance(value, np.floating) else value
+                            grp.attrs[key] = (
+                                float(value) if isinstance(value, np.floating)
+                                else value
+                            )
                         elif isinstance(value, str):
                             grp.attrs[key] = value
                         elif isinstance(value, np.ndarray):

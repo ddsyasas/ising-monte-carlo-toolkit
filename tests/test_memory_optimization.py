@@ -11,9 +11,6 @@ Tests cover:
 Run with: pytest tests/test_memory_optimization.py -v
 """
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 import pytest
 

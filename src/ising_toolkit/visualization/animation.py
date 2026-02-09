@@ -537,8 +537,6 @@ def _save_animation(anim, filename: str, fps: int, dpi: int) -> None:
     dpi : int
         Resolution.
     """
-    import matplotlib.pyplot as plt
-
     filename = str(filename)
     ext = filename.lower().split('.')[-1]
 
@@ -576,13 +574,13 @@ def _check_animation_dependencies() -> dict:
     available = {'gif': False, 'mp4': False}
 
     try:
-        from matplotlib.animation import PillowWriter
+        from matplotlib.animation import PillowWriter  # noqa: F401
         available['gif'] = True
     except ImportError:
         pass
 
     try:
-        from matplotlib.animation import FFMpegWriter
+        from matplotlib.animation import FFMpegWriter  # noqa: F401
         # Check if ffmpeg is actually available
         import subprocess
         result = subprocess.run(

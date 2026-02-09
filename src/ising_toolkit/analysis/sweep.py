@@ -1,6 +1,6 @@
 """Temperature sweep functionality for phase transition analysis."""
 
-from typing import Dict, List, Optional, Type, Union
+from typing import List, Optional, Type, Union
 
 import numpy as np
 

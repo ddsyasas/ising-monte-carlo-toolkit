@@ -1,6 +1,6 @@
 """Wolff cluster algorithm sampler."""
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 from tqdm import tqdm

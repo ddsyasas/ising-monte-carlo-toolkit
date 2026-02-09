@@ -22,7 +22,7 @@ Examples
 >>> assert np.array_equal(spins, unpacked)
 """
 
-from typing import Tuple, Union
+from typing import Tuple
 import numpy as np
 
 
@@ -190,8 +190,6 @@ def pack_configurations(
         return np.array([], dtype=np.uint8)
 
     n_configs = len(configurations)
-    shape = configurations[0].shape
-
     if compression_level == 0:
         # Just stack and return
         stacked = np.stack(configurations)

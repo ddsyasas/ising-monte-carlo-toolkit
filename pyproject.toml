@@ -59,3 +59,8 @@ warn_unused_configs = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --cov=ising_toolkit --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = [
+    "src/ising_toolkit/utils/numba_kernels.py",
+]

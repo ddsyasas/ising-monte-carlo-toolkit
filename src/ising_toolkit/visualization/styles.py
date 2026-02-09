@@ -1,7 +1,7 @@
 """Publication-quality matplotlib styles for Ising model visualizations."""
 
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 # =============================================================================
 # Style Dictionaries

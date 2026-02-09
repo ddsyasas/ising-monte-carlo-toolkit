@@ -1,11 +1,11 @@
 """Phase diagram and observable plotting functions."""
 
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 try:
-    import pandas as pd
+    import pandas as pd  # noqa: F401
     HAS_PANDAS = True
 except ImportError:
     HAS_PANDAS = False
@@ -17,7 +17,6 @@ from ising_toolkit.visualization.styles import (
     add_critical_line,
     configure_legend,
     COLOR_CRITICAL,
-    COLORMAP_TEMPERATURE,
 )
 
 
@@ -621,7 +620,8 @@ def plot_scaling_collapse(
         )
 
     ax.set_xlabel(r'$(T - T_c) \cdot L^{1/\nu}$')
-    ax.set_ylabel(f'$L^{{{exponent:.2f}}} \\cdot$ {_OBSERVABLE_SHORT_LABELS.get(observable, observable)}')
+    obs_label = _OBSERVABLE_SHORT_LABELS.get(observable, observable)
+    ax.set_ylabel(f'$L^{{{exponent:.2f}}} \\cdot$ {obs_label}')
     ax.axvline(0, color='gray', linestyle='--', alpha=0.5)
     ax.grid(True, alpha=0.3)
     configure_legend(ax)
@@ -954,7 +954,10 @@ def plot_configuration_comparison(
         raise ValueError("At least one configuration required")
 
     if titles is not None and len(titles) != n_configs:
-        raise ValueError(f"Number of titles ({len(titles)}) must match configurations ({n_configs})")
+        raise ValueError(
+            f"Number of titles ({len(titles)}) must match "
+            f"configurations ({n_configs})"
+        )
 
     if figsize is None:
         figsize = (4 * n_configs, 4)

@@ -25,6 +25,7 @@ try:
 except ImportError:
     NUMBA_AVAILABLE = False
     # Create dummy decorator for when numba is not available
+
     def njit(*args, **kwargs):
         def decorator(func):
             return func
@@ -952,7 +953,9 @@ def run_benchmark(L=32, n_sweeps=100, temperature=2.269, dimension=2):
         spins_python = spins_numba.copy()
         acceptance_probs = precompute_acceptance_probs_1d(beta)
         numba_func = _metropolis_sweep_1d
-        python_func = lambda s, b, p: _metropolis_sweep_2d_python(s.reshape(-1), b, p)
+
+        def python_func(s, b, p):
+            return _metropolis_sweep_2d_python(s.reshape(-1), b, p)
         n_sites = L
 
     elif dimension == 2:
@@ -1018,13 +1021,13 @@ def print_benchmark_results(results):
     print()
 
     if results['numba_available']:
-        print(f"Numba JIT:")
+        print("Numba JIT:")
         print(f"  Time: {results['numba_time']:.3f} s")
         print(f"  Sweeps/sec: {results['numba_sweeps_per_sec']:.1f}")
         print(f"  Spin flips/sec: {results['numba_flips_per_sec']:.2e}")
         print()
 
-    print(f"Pure Python:")
+    print("Pure Python:")
     print(f"  Time (extrapolated): {results['python_time']:.3f} s")
     print(f"  Sweeps/sec: {results['python_sweeps_per_sec']:.1f}")
     print(f"  Spin flips/sec: {results['python_flips_per_sec']:.2e}")

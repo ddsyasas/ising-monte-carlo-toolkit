@@ -22,13 +22,12 @@ Examples
 """
 
 import multiprocessing as mp
-import os
 import sys
 import traceback
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 

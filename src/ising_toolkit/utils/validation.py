@@ -281,7 +281,7 @@ def validate_initial_state(value: str) -> str:
     >>> validate_initial_state("random")
     'random'
     >>> validate_initial_state("antiferromagnetic")
-    ConfigurationError: initial_state must be one of ('random', 'up', 'down', 'checkerboard'), got 'antiferromagnetic'
+    ConfigurationError: initial_state must be one of (...), got 'antiferromagnetic'
     """
     if not isinstance(value, str):
         raise ConfigurationError(

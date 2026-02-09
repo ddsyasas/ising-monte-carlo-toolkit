@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional, Union
 import copy
 
 
@@ -76,7 +76,7 @@ class SimulationConfig:
                 raise ValueError(f"Size must be positive, got {self.size}")
         elif isinstance(self.size, list):
             if not all(isinstance(s, int) and s > 0 for s in self.size):
-                raise ValueError(f"All sizes must be positive integers")
+                raise ValueError("All sizes must be positive integers")
         else:
             raise TypeError(f"Size must be int or list, got {type(self.size)}")
 

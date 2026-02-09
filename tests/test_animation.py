@@ -9,7 +9,7 @@ import pytest
 # Skip all tests if matplotlib not available
 plt = pytest.importorskip("matplotlib.pyplot")
 
-from ising_toolkit.visualization.animation import (
+from ising_toolkit.visualization.animation import (  # noqa: E402
     create_spin_animation,
     create_observable_animation,
     create_temperature_sweep_animation,
@@ -192,7 +192,9 @@ class TestCreateObservableAnimation:
         assert output_path.exists()
         assert output_path.stat().st_size > 0
 
-    def test_custom_observable_name(self, sample_configurations, sample_observable_data, output_dir):
+    def test_custom_observable_name(
+        self, sample_configurations, sample_observable_data, output_dir
+    ):
         """Test custom observable name."""
         pytest.importorskip("PIL")
 
@@ -359,7 +361,7 @@ class TestDependencyCheck:
     def test_gif_available_with_pillow(self):
         """Test GIF availability when Pillow is installed."""
         try:
-            import PIL
+            import PIL  # noqa: F401
             result = _check_animation_dependencies()
             assert result['gif'] is True
         except ImportError:
@@ -434,7 +436,9 @@ class TestAnimationIntegration:
 
         assert output_path.exists()
 
-    def test_multiple_animations_same_data(self, sample_configurations, sample_observable_data, output_dir):
+    def test_multiple_animations_same_data(
+        self, sample_configurations, sample_observable_data, output_dir
+    ):
         """Test creating multiple animations from same data."""
         pytest.importorskip("PIL")
 

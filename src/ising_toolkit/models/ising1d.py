@@ -9,7 +9,6 @@ from ising_toolkit.utils import (
     validate_lattice_size,
     validate_initial_state,
     validate_temperature,
-    ConfigurationError,
     DEFAULT_COUPLING,
 )
 
