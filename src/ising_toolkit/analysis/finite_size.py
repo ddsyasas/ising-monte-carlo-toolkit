@@ -1,5 +1,6 @@
 """Finite-size scaling analysis for critical phenomena."""
 
+import logging
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
@@ -13,6 +14,8 @@ except ImportError:
 
 from ising_toolkit.models.base import IsingModel
 from ising_toolkit.analysis.sweep import TemperatureSweep
+
+logger = logging.getLogger(__name__)
 
 
 class FiniteSizeScaling:
@@ -133,7 +136,7 @@ class FiniteSizeScaling:
 
         for size in self.sizes:
             if progress:
-                print(f"Running L = {size}...")
+                logger.info("Running L = %d...", size)
 
             sweep = TemperatureSweep(
                 model_class=self.model_class,

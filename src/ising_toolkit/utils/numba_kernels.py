@@ -17,7 +17,11 @@ Usage:
     n_accepted = metropolis_sweep_2d(spins, beta, acceptance_probs)
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit, prange
@@ -1011,36 +1015,43 @@ def run_benchmark(L=32, n_sweeps=100, temperature=2.269, dimension=2):
 
 
 def print_benchmark_results(results):
-    """Print formatted benchmark results."""
-    print(f"\n{'='*60}")
-    print(f"Benchmark: {results['dimension']}D Ising, L={results['L']}, "
-          f"T={results['temperature']:.3f}")
-    print(f"{'='*60}")
-    print(f"Sweeps: {results['n_sweeps']}")
-    print(f"Numba available: {results['numba_available']}")
-    print()
+    """Log formatted benchmark results.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary of benchmark results from run_benchmark().
+    """
+    logger.info("=" * 60)
+    logger.info(
+        "Benchmark: %dD Ising, L=%d, T=%.3f",
+        results['dimension'], results['L'], results['temperature']
+    )
+    logger.info("=" * 60)
+    logger.info("Sweeps: %d", results['n_sweeps'])
+    logger.info("Numba available: %s", results['numba_available'])
 
     if results['numba_available']:
-        print("Numba JIT:")
-        print(f"  Time: {results['numba_time']:.3f} s")
-        print(f"  Sweeps/sec: {results['numba_sweeps_per_sec']:.1f}")
-        print(f"  Spin flips/sec: {results['numba_flips_per_sec']:.2e}")
-        print()
+        logger.info("Numba JIT:")
+        logger.info("  Time: %.3f s", results['numba_time'])
+        logger.info("  Sweeps/sec: %.1f", results['numba_sweeps_per_sec'])
+        logger.info("  Spin flips/sec: %.2e", results['numba_flips_per_sec'])
 
-    print("Pure Python:")
-    print(f"  Time (extrapolated): {results['python_time']:.3f} s")
-    print(f"  Sweeps/sec: {results['python_sweeps_per_sec']:.1f}")
-    print(f"  Spin flips/sec: {results['python_flips_per_sec']:.2e}")
-    print()
+    logger.info("Pure Python:")
+    logger.info("  Time (extrapolated): %.3f s", results['python_time'])
+    logger.info("  Sweeps/sec: %.1f", results['python_sweeps_per_sec'])
+    logger.info("  Spin flips/sec: %.2e", results['python_flips_per_sec'])
 
-    print(f"Speedup: {results['speedup']:.1f}x")
-    print(f"{'='*60}\n")
+    logger.info("Speedup: %.1fx", results['speedup'])
+    logger.info("=" * 60)
 
 
 if __name__ == '__main__':
-    # Run benchmarks when executed directly
-    print("Running Numba kernel benchmarks...")
-    print(f"Numba available: {NUMBA_AVAILABLE}")
+    # Configure logging for direct execution
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    logger.info("Running Numba kernel benchmarks...")
+    logger.info("Numba available: %s", NUMBA_AVAILABLE)
 
     # 1D benchmark
     results_1d = run_benchmark(L=1000, n_sweeps=100, dimension=1)
@@ -1055,7 +1066,7 @@ if __name__ == '__main__':
     print_benchmark_results(results_3d)
 
     # Summary
-    print("\nSummary:")
-    print(f"  1D (L=1000): {results_1d['speedup']:.1f}x speedup")
-    print(f"  2D (L=64):   {results_2d['speedup']:.1f}x speedup")
-    print(f"  3D (L=16):   {results_3d['speedup']:.1f}x speedup")
+    logger.info("Summary:")
+    logger.info("  1D (L=1000): %.1fx speedup", results_1d['speedup'])
+    logger.info("  2D (L=64):   %.1fx speedup", results_2d['speedup'])
+    logger.info("  3D (L=16):   %.1fx speedup", results_3d['speedup'])

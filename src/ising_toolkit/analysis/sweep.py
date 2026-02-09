@@ -1,5 +1,6 @@
 """Temperature sweep functionality for phase transition analysis."""
 
+import logging
 from typing import List, Optional, Type, Union
 
 import numpy as np
@@ -15,6 +16,8 @@ from ising_toolkit.samplers import create_sampler
 from ising_toolkit.analysis.observables import calculate_all_observables
 from ising_toolkit.analysis.statistics import bootstrap_mean_error
 from ising_toolkit.utils.parallel import parallel_map
+
+logger = logging.getLogger(__name__)
 
 
 def _run_single_temperature(args: tuple) -> dict:
@@ -617,7 +620,7 @@ def run_finite_size_scaling(
         # Sequential sizes, parallel temperatures
         for size in sizes:
             if progress:
-                print(f"Running L={size}...")
+                logger.info("Running L=%d...", size)
 
             sweep = TemperatureSweep(
                 model_class=model_class,
