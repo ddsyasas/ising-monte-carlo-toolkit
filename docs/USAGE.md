@@ -4,6 +4,7 @@ A comprehensive guide to using the Ising Monte Carlo simulation toolkit for stud
 
 ## Table of Contents
 
+- [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [CLI Commands](#cli-commands)
   - [run - Single Simulation](#run-single-simulation)
@@ -22,6 +23,59 @@ A comprehensive guide to using the Ising Monte Carlo simulation toolkit for stud
 
 ---
 
+## Prerequisites
+
+### Python
+
+This toolkit requires **Python 3.9 or later**. To check your Python version:
+
+```bash
+python --version
+```
+
+> **Note:** On some systems (especially macOS and Linux), you may need to use `python3` instead of `python`. If `python --version` shows Python 2.x or "command not found", try `python3 --version` instead. If using `python3`, replace `python` with `python3` in all commands below.
+
+### Opening a Terminal
+
+All commands in this guide are run from a **terminal** (command line). Here's how to open one:
+
+| Operating System | How to Open |
+|-----------------|-------------|
+| **Windows** | Press `Win + R`, type `cmd`, press Enter. Or search for "Command Prompt" or "PowerShell" in the Start menu. |
+| **macOS** | Press `Cmd + Space`, type "Terminal", press Enter. Or open **Applications > Utilities > Terminal**. |
+| **Linux** | Press `Ctrl + Alt + T`, or search for "Terminal" in your application menu. |
+
+### Git
+
+You need [Git](https://git-scm.com/downloads) to clone the repository. To check if Git is installed:
+
+```bash
+git --version
+```
+
+### Virtual Environment (Recommended)
+
+It is good practice to use a virtual environment to avoid conflicts with other Python packages:
+
+```bash
+# Create a virtual environment
+python -m venv venv
+
+# Activate it
+# On macOS/Linux:
+source venv/bin/activate
+
+# On Windows (Command Prompt):
+venv\Scripts\activate
+
+# On Windows (PowerShell):
+venv\Scripts\Activate.ps1
+```
+
+> When the virtual environment is active, you will see `(venv)` at the beginning of your terminal prompt.
+
+---
+
 ## Quick Start
 
 ### Installation
@@ -34,6 +88,16 @@ cd ising-monte-carlo-toolkit
 # Install the package
 pip install -e .
 ```
+
+### Verify Installation
+
+After installing, verify everything is working:
+
+```bash
+python -m src.ising_toolkit.cli --help
+```
+
+You should see a list of available commands (`run`, `sweep`, `plot`, `analyze`, `info`, `benchmark`). If you see an error, make sure you are in the `ising-monte-carlo-toolkit` directory and the installation completed without errors.
 
 ### Your First Simulation
 

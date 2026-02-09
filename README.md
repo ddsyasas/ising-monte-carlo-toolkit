@@ -72,17 +72,23 @@ where $J > 0$ is the ferromagnetic coupling and $\sigma_i = \pm 1$ are spin vari
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.9+ ([download](https://www.python.org/downloads/))
+- Git ([download](https://git-scm.com/downloads))
 - **Supported platforms**: Linux, macOS, Windows
-- NumPy, Matplotlib, Click, SciPy
+
+> **New to the command line?** See the [full setup guide](docs/USAGE.md#prerequisites) for step-by-step instructions on opening a terminal, setting up a virtual environment, and verifying your installation.
 
 ### Installation
+
+Open a terminal and run:
 
 ```bash
 git clone https://github.com/ddsyasas/ising-monte-carlo-toolkit.git
 cd ising-monte-carlo-toolkit
 pip install -e .
 ```
+
+> **Note:** On some systems you may need to use `python3` and `pip3` instead of `python` and `pip`.
 
 ### Run Your First Simulation
 
