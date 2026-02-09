@@ -73,6 +73,7 @@ where $J > 0$ is the ferromagnetic coupling and $\sigma_i = \pm 1$ are spin vari
 ### Prerequisites
 
 - Python 3.9+
+- **Supported platforms**: Linux, macOS, Windows
 - NumPy, Matplotlib, Click, SciPy
 
 ### Installation
