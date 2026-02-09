@@ -1,5 +1,6 @@
 """Tests for the command-line interface."""
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -19,7 +20,9 @@ def runner():
 @pytest.fixture
 def temp_dir():
     """Create temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # ignore_cleanup_errors for Windows file locking (WinError 32)
+    kw = {"ignore_cleanup_errors": True} if sys.platform == "win32" else {}
+    with tempfile.TemporaryDirectory(**kw) as tmpdir:
         yield Path(tmpdir)
 
 
