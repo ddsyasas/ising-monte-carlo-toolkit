@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.8+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.9+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/version-0.1.0-green?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/physics-statistical_mechanics-red?style=for-the-badge" alt="Physics">
   <img src="https://img.shields.io/badge/numba-JIT_accelerated-orange?style=for-the-badge&logo=numba" alt="Numba">
@@ -71,7 +71,7 @@ where $J > 0$ is the ferromagnetic coupling and $\sigma_i = \pm 1$ are spin vari
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - NumPy, Matplotlib, Click, SciPy
 
 ### Installation
