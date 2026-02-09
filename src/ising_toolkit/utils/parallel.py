@@ -63,14 +63,17 @@ class ParallelResult:
 
     @property
     def n_successful(self) -> int:
+        """Number of tasks that completed successfully."""
         return len([r for r in self.results if r is not None])
 
     @property
     def n_failed(self) -> int:
+        """Number of tasks that raised exceptions."""
         return len(self.errors)
 
     @property
     def success_rate(self) -> float:
+        """Fraction of tasks that completed successfully."""
         total = len(self.results)
         return self.n_successful / total if total > 0 else 0.0
 

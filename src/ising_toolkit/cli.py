@@ -1900,6 +1900,7 @@ def analyze(input, observables, bootstrap, output, format, verbose):
         elif format == 'json':
             # Convert numpy types to Python types for JSON
             def convert_numpy(obj):
+                """Recursively convert numpy types to native Python for JSON."""
                 if isinstance(obj, np.ndarray):
                     return obj.tolist()
                 elif isinstance(obj, (np.integer, np.floating)):
