@@ -277,6 +277,8 @@ class Ising2D(IsingModel):
         Uses efficient numpy operations or Numba JIT-compiled code
         to compute the sum over all nearest-neighbor pairs.
         """
+        # Using vectorized operations for efficiency:
+        # E = -J * sum of (spin * neighbor) for all nearest-neighbor pairs
         if self._use_numba and _calculate_energy_2d is not None:
             # Numba-accelerated implementation
             return float(_calculate_energy_2d(self._spins)) * self._coupling
