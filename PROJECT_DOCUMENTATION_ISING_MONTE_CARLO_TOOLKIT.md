@@ -1,6 +1,6 @@
 # Ising Monte Carlo Toolkit
 
-A high-performance Python toolkit for simulating magnetic phase transitions using Monte Carlo methods. This project provides a comprehensive framework for studying the Ising model across different dimensions, with automated workflows, statistical analysis, and publication-quality visualizations.
+A high-performance Python toolkit for simulating magnetic phase transitions using Monte Carlo methods. This toolkit provides a comprehensive framework for studying the Ising model across different dimensions, with automated workflows, statistical analysis, and publication-quality visualizations.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
