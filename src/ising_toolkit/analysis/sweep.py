@@ -271,7 +271,7 @@ class TemperatureSweep:
             return results
 
     @property
-    def results(self):
+    def results(self) -> Union[List[dict], None]:
         """Get results as DataFrame (or list if pandas not available)."""
         if self._results_df is not None:
             return self._results_df
@@ -460,7 +460,7 @@ class TemperatureSweep:
 
         return float(temps[idx])
 
-    def save_results(self, path: str, format: str = 'csv'):
+    def save_results(self, path: str, format: str = 'csv') -> None:
         """Save results to file.
 
         Parameters

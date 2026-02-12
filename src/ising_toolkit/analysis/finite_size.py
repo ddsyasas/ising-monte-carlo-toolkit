@@ -165,7 +165,7 @@ class FiniteSizeScaling:
             return all_results
 
     @property
-    def results(self):
+    def results(self) -> Union[List[dict], None]:
         """Get results DataFrame."""
         return self._results_df
 

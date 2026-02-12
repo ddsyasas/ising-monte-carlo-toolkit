@@ -1,6 +1,6 @@
 """Functions for calculating physical observables from simulation data."""
 
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -170,7 +170,7 @@ def calculate_binder_cumulant(
 
 def calculate_correlation_time(
     observable: np.ndarray,
-    max_lag: int = None,
+    max_lag: Optional[int] = None,
 ) -> float:
     """Estimate integrated autocorrelation time.
 
