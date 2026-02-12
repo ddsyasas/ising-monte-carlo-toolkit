@@ -161,6 +161,12 @@ def validate_temperature(value: Union[int, float]) -> float:
     >>> validate_temperature(0)
     ConfigurationError: temperature must be a positive number, got 0.0
     """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value <= 0:
+            raise ConfigurationError(
+                f"Temperature must be positive (got {value}). "
+                f"Note: temperature is in units of J/kB."
+            )
     return validate_positive_float(value, "temperature")
 
 
