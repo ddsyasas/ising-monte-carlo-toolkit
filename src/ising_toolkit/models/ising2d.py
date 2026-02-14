@@ -74,6 +74,11 @@ class Ising2D(IsingModel):
     >>> energy = model.get_energy()
     >>> mag = model.get_magnetization()
 
+    >>> print(f"Number of spins: {model.n_spins}")
+    Number of spins: 1024
+    >>> print(f"Near critical: {model.is_near_critical()}")
+    Near critical: True
+
     >>> # Explicitly disable Numba for comparison
     >>> model_slow = Ising2D(size=32, temperature=2.269, use_numba=False)
 
