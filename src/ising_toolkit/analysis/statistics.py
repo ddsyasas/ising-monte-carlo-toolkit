@@ -1,6 +1,6 @@
 """Statistical analysis tools including bootstrap resampling."""
 
-from typing import Callable, Tuple, Optional
+from typing import Any, Callable, Dict, Tuple, Optional
 
 import numpy as np
 
@@ -974,12 +974,12 @@ def blocking_analysis_log(
 
 def plot_blocking_analysis(
     data: np.ndarray,
-    ax=None,
+    ax: Any = None,
     log_scale: bool = True,
     show_optimal: bool = True,
     show_tau_estimate: bool = True,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Tuple[Any, Dict[str, Any]]:
     """Plot blocking analysis results.
 
     Creates a diagnostic plot showing how the error estimate varies
