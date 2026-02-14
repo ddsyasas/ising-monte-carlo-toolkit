@@ -228,12 +228,10 @@ class Sampler(ABC):
             measurement_interval, "measurement_interval"
         )
 
-        if configuration_interval is None:
-            configuration_interval = 10 * measurement_interval
-        else:
-            configuration_interval = validate_positive_integer(
-                configuration_interval, "configuration_interval"
-            )
+        configuration_interval = (
+            10 * measurement_interval if configuration_interval is None
+            else validate_positive_integer(configuration_interval, "configuration_interval")
+        )
 
         # Calculate number of measurements
         n_measurements = n_steps // measurement_interval
@@ -297,7 +295,7 @@ class Sampler(ABC):
             energy=energies,
             magnetization=magnetizations,
             metadata=metadata,
-            configurations=configurations if configurations else None,
+            configurations=configurations or None,
         )
 
     def _build_metadata(
